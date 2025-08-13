@@ -1,0 +1,67 @@
+﻿table,column,dtype,description
+fact_sku_daily,date,object,Дата (shipment/return)
+fact_sku_daily,sku,object,Идентификатор SKU
+fact_sku_daily,shipped_qty,int64,"Отгружено, шт."
+fact_sku_daily,promo_rub,float64,"Промо/скидки по заказам, ₽"
+fact_sku_daily,order_value_rub_sum,float64,"Сумма заказов из csv, ₽ (если доступно)"
+fact_sku_daily,shipments,int64,Число отправлений
+fact_sku_daily,returns_qty,int64,"Возвраты, шт."
+fact_sku_daily,returns_rub,float64,"Возвраты, ₽"
+fact_sku_monthly,period,object,Период YYYY-MM
+fact_sku_monthly,sku,object,Идентификатор SKU
+fact_sku_monthly,shipped_qty,int64,"Отгружено, шт."
+fact_sku_monthly,promo_rub,float64,"Промо/скидки, ₽"
+fact_sku_monthly,order_value_rub_sum,float64,"Сумма заказов, ₽"
+fact_sku_monthly,returns_qty,int64,"Возвраты, шт."
+fact_sku_monthly,returns_rub,float64,"Возвраты, ₽"
+mart_unit_econ,sku,object,Идентификатор SKU
+mart_unit_econ,total_qty,int64,"Продано всего, шт."
+mart_unit_econ,total_rev,float64,"Валовая выручка, ₽"
+mart_unit_econ,total_fee,float64,"Комиссия Ozon, ₽"
+mart_unit_econ,total_payout,float64,"К выплате, ₽"
+mart_unit_econ,returns_qty,float64,"Возвраты, шт."
+mart_unit_econ,returns_rub,float64,"Возвраты, ₽"
+mart_unit_econ,promo_cost,float64,"Расходы на промо, ₽"
+mart_unit_econ,production_cost,float64,"Себестоимость за ед., ₽"
+mart_unit_econ,production_cost_total,float64,"Итого себестоимость, ₽"
+mart_unit_econ,comb_cost,float64,"Совокупные затраты, ₽"
+mart_unit_econ,net_qty,float64,"Чистое кол-во, шт."
+mart_unit_econ,net_revenue,float64,"Чистая выручка, ₽"
+mart_unit_econ,margin,float64,"Маржа, ₽"
+mart_unit_econ,avg_price_per_unit,float64,"Средняя цена, ₽/ед."
+mart_unit_econ,avg_net_price_per_unit,float64,"Средняя чистая цена, ₽/ед."
+mart_unit_econ,commission_per_unit,float64,"Комиссия за ед., ₽"
+mart_unit_econ,promo_per_unit,float64,"Промо за ед., ₽"
+mart_unit_econ,margin_per_unit,float64,"Маржа за ед., ₽"
+mart_unit_econ,contribution_margin,float64,Contribution margin (unit/price)
+mart_unit_econ,break_even_price,float64,"Точка безубыточности, ₽/ед."
+mart_unit_econ,margin_pct,float64,"Маржа, % от чистой выручки"
+mart_unit_econ,returns_pct,float64,"Доля возвратов, %"
+mart_unit_econ,promo_intensity_pct,float64,"Интенсивность промо, % от выручки"
+mart_unit_econ,avg_order_value,float64,"Средний чек, ₽"
+mart_unit_econ,conversion_order_return,float64,"Конверсия заказ→возврат, %"
+mart_unit_econ,recommended_action,object,SCALE/FIX/STOP
+mart_unit_econ,ordered_qty_promo_sum,int64,"Заказано по акциям, шт."
+mart_unit_econ,unique_visitors_total_sum,int64,"Уникальные посетители, всего"
+mart_unit_econ,unique_visitors_card_sum,int64,Уникальные посетители карточки
+mart_unit_econ,ordered_amount_promo_sum,int64,"Сумма заказов по акциям, ₽"
+mart_unit_econ,ordered_amount_sum,int64,"Сумма заказов, ₽"
+mart_unit_econ,card_to_cart_conversion_mean,float64,"Конверсия карточка→корзина, %"
+mart_unit_econ,accrual_amount_sum,float64,"Сумма начислений, ₽"
+mart_unit_econ,accrual_qty_sum,int64,Кол-во начислений
+mart_unit_econ,accrual_cost_per_unit,float64,"Ср. начисление за ед., ₽"
+mart_unit_econ,margin_adj,float64,"Маржа с учётом начислений, ₽"
+mart_unit_econ,opening_stock,float64,"Остаток на начало, шт."
+mart_unit_econ,incoming,float64,"Приход, шт."
+mart_unit_econ,incoming_from_supplies,float64,"Приход из поставок, шт."
+mart_unit_econ,outgoing,float64,"Расход, шт."
+mart_unit_econ,outgoing_shipped,float64,"Расход отгруженный, шт."
+mart_unit_econ,ending_stock,float64,"Остаток на конец, шт."
+mart_unit_econ,valid_stock_end,float64,"Валидный остаток, шт."
+mart_unit_econ,valid_stock_end,float64,"Валидный остаток, шт."
+mart_unit_econ,invalid_stock_end,float64,"Невалидный остаток, шт."
+mart_unit_econ,average_inventory,float64,"Средний запас, шт."
+mart_unit_econ,cogs,float64,"Себестоимость проданных, ₽"
+mart_unit_econ,inventory_turnover,float64,Оборачиваемость запасов
+mart_unit_econ,ABC_class,object,ABC‑класс по выручке
+mart_unit_econ,XYZ_class,object,XYZ‑класс по стабильности

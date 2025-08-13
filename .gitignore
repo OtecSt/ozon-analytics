@@ -205,3 +205,17 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+__pycache__/
+*.py[cod]
+.venv/
+env/
+venv/
+.DS_Store
+.vscode/
+.streamlit/secrets.toml
+secrets.toml
+logs/
+output/
+reports/
+

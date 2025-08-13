@@ -1,0 +1,46 @@
+# Конфиг пайплайна
+# Укажите ваши пути. Пример ниже соответствует вашим сообщениям.
+
+python_bin: python3
+
+paths:
+  # Папка со скриптами
+  scripts_dir: "/Users/aleksandr/Desktop/озон рад/soft/готовое/my_ozon_analytics/scripts"
+  # Папка с исходными «сырыми» файлами
+  data_dir: "/Users/aleksandr/Desktop/озон рад/soft/готовое/my_ozon_analytics/data/cleaned_data"
+  # Папка для CSV под дашборды
+  gold_dir: "/Users/aleksandr/Desktop/озон рад/soft/готовое/my_ozon_analytics/gold"
+  # Папка для итоговых Excel‑отчётов
+  reports_dir: "/Users/aleksandr/Desktop/озон рад/soft/готовое/my_ozon_analytics/reports"
+  # Необязательно: файл с плановыми пополнениями (xlsx с колонками sku, period, qty)
+  planned_inbound:
+
+files:
+  orders: "25 заказы январь-июль.csv"
+  sales: "Отчет о реализации товара январь-июль.xlsx"
+  returns: "2025 возвраты январь-июль.xlsx"
+  costs: "production_costs.xlsx"
+  promo_actions: "2 аналитика акции.xlsx"
+  accruals: "Отчет по начислениям_01.01.2025-17.07.2025.xlsx"
+  inventory: "продажи по складам.xlsx"
+
+params:
+  return_window_days: 90
+
+analytics:
+  charts: false
+  eda: false
+
+forecast:
+  horizon: 3
+  model: "ets"         # ets | arima
+  backtest: 0
+
+assumptions:
+  price_drift: 0.0
+  promo_delta_pp: 0.0
+  commission_delta_pp: 0.0
+  returns_delta_pp: 0.0
+  capacity_limit:
+  min_margin_pct: 0.05
+  min_batch: 1
