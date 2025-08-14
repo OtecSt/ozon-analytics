@@ -1,0 +1,11 @@
+﻿parameter,value
+model,ets
+horizon,3
+backtest_n,0
+price_drift,0.0
+promo_delta_pp,0.0
+commission_delta_pp,0.0
+returns_delta_pp,0.0
+capacity_limit,
+min_margin_pct,0.05
+min_batch,1
