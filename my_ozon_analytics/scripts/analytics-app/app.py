@@ -8,8 +8,219 @@ from typing import Dict
 import numpy as np
 import pandas as pd
 import streamlit as st
+
 import plotly.express as px
 import plotly.graph_objects as go
+
+# ---- Unified config access (secrets/env) ----
+def _cfg(key: str, default=None):
+    """
+    Возвращает значение конфига по ключу.
+    Приоритет: Streamlit secrets -> переменные окружения -> default.
+    """
+    try:
+        # st уже импортирован выше
+        val = st.secrets.get(key, None)  # type: ignore[attr-defined]
+        if val is not None:
+            return val
+    except Exception:
+        pass
+    import os
+    return os.environ.get(key, default)
+
+COGS_MODE = (_cfg("COGS_MODE", "NET") or "NET").upper()
+RETURNS_ALERT_PCT = float(_cfg("RETURNS_ALERT_PCT", "5"))
+
+# --- Granularity helpers & aggregation ---
+def _has(df, cols):
+    return (df is not None) and (not df.empty) and set(cols).issubset(df.columns)
+
+@st.cache_data(ttl=600, show_spinner=False)
+def aggregate_from_daily(daily: pd.DataFrame) -> dict:
+    if daily is None or daily.empty or "date" not in daily.columns:
+        return {"daily": pd.DataFrame(), "weekly": pd.DataFrame(), "monthly": pd.DataFrame()}
+
+    d = daily.copy()
+    d["date"] = pd.to_datetime(d["date"], errors="coerce")
+    num_cols = [c for c in ["order_value_rub_sum","returns_rub","promo_rub",
+                            "shipped_qty","returns_qty","shipments","cogs","margin"]
+                if c in d.columns]
+    for c in num_cols:
+        d[c] = pd.to_numeric(d[c], errors="coerce").fillna(0)
+
+    # DAY
+    daily_agg = (d.groupby("date", as_index=False)
+                   .agg({c: "sum" for c in num_cols})
+                   .sort_values("date"))
+
+    # WEEK: ISO-с понедельника
+    d["week_start"] = d["date"].dt.to_period("W-MON").apply(lambda r: r.start_time)
+    weekly_agg = (d.groupby("week_start", as_index=False)
+                    .agg({c: "sum" for c in num_cols})
+                    .rename(columns={"week_start": "period"})
+                    .sort_values("period"))
+
+    # MONTH: строго из daily, чтобы не копить погрешность
+    d["month"] = d["date"].dt.to_period("M").dt.to_timestamp()
+    monthly_agg = (d.groupby("month", as_index=False)
+                     .agg({c: "sum" for c in num_cols})
+                     .rename(columns={"month": "period"})
+                     .sort_values("period"))
+
+    return {"daily": daily_agg, "weekly": weekly_agg, "monthly": monthly_agg}
+
+# --- Caption helpers ---
+
+def render_caption(title: str, bullets: list[str], note: str | None = None):
+    """Единый шаблон подписи под графиком."""
+    lines = [f"**{title}**", ""]
+    if bullets:
+        for b in bullets:
+            lines.append(f"- {b}")
+    if note:
+        lines += ["", note]
+    import streamlit as st  # локальный импорт на всякий случай
+    st.markdown("\n".join(lines))
+
+def trend_summary(ts: pd.DataFrame, date_col: str, value_col: str, sma_window: int = 7) -> str:
+    """Короткая авто-интерпретация тренда: рост/падение/плато, провалы, затухание до нуля."""
+    if ts is None or ts.empty or not {date_col, value_col}.issubset(ts.columns):
+        return "Данные для интерпретации отсутствуют."
+    s = ts.sort_values(date_col)[value_col].astype(float).fillna(0.0)
+    if len(s) < max(8, sma_window + 1):
+        return "Недостаточно точек для устойчивого вывода."
+    # базовая динамика: сравнение среднего последних k против предыдущих k
+    k = min(14, max(7, len(s)//6))
+    tail_mean = s.tail(k).mean()
+    prev_mean = s.iloc[-2*k:-k].mean() if len(s) >= 2*k else s.head(max(3, len(s)//3)).mean()
+    delta = tail_mean - prev_mean
+    pct = (delta / prev_mean * 100) if prev_mean else 0.0
+
+    # детекция «затухания до нуля»
+    zero_streak = int((s.tail(min(60, len(s))) == 0).astype(int).groupby((s != 0).astype(int).cumsum()).cumcount().max() or 0)
+
+    if zero_streak >= 7:
+        return f"Наблюдается длительная серия нулевых продаж (≈{zero_streak} дней). Требуется проверка остатков/статуса карточек."
+    if pct > 10:
+        return f"Тренд положительный: средний уровень последних недель выше на {pct:.1f}%."
+    if pct < -10:
+        return f"Тренд отрицательный: средний уровень последних недель ниже на {abs(pct):.1f}%."
+    return "Существенных изменений тренда не выявлено (колебания в пределах нормы)."
+
+
+# --- RU headers helper ---
+RENAME_MAP_RU = {
+    "sku": "SKU",
+    "category": "Категория",
+    "total_rev": "Выручка, ₽",
+    "net_revenue": "Чистая выручка, ₽",
+    "margin": "Маржа, ₽",
+    "returns_pct": "Возвраты, %",
+    "returns_qty": "Возвраты, шт.",
+    "returns_rub": "Возвраты, ₽",
+    "promo_intensity_pct": "Промо, %",
+    "promo_cost": "Промо, ₽",
+    "avg_price_per_unit": "Цена (вал.), ₽/ед.",
+    "avg_net_price_per_unit": "Цена (нетто), ₽/ед.",
+    "production_cost_per_unit": "Себестоимость, ₽/ед.",
+    "commission_per_unit": "Комиссия, ₽/ед.",
+    "promo_per_unit": "Промо, ₽/ед.",
+    "margin_per_unit": "Маржа/ед., ₽",
+    "break_even_price": "Точка безуб., ₽/ед.",
+    "contribution_margin": "Вклад маржи",
+    "margin_pct": "Маржа, %",
+    "shipped_qty": "Отгрузки, шт.",
+    "shipments": "Доставки, шт.",
+    "period": "Период",
+    "date": "Дата",
+    "cogs": "COGS, ₽",
+    "commission_total": "Комиссия, ₽",
+    "forecast_qty": "Прогноз, шт.",
+    "ending_stock": "Остаток на конец, шт.",
+    "average_inventory": "Средний запас, шт.",
+    "inventory_turnover": "Оборачиваемость",
+    "opening_stock": "Остаток на начало, шт.",
+    "incoming": "Поступления, шт.",
+    "outgoing": "Списания/продажи, шт.",
+}
+
+def df_ru(df: pd.DataFrame) -> pd.DataFrame:
+    """Переименовывает знакомые тех. колонки в русские заголовки."""
+    try:
+        return df.rename(columns={k: v for k, v in RENAME_MAP_RU.items() if k in df.columns})
+    except Exception:
+        return df
+
+def show_table_ru(df: pd.DataFrame, title: str | None = None, use_container_width: bool = True):
+    """Отображает таблицу с русскими заголовками (если известны)."""
+    if title:
+        st.markdown(f"#### {title}")
+    st.dataframe(df_ru(df), use_container_width=use_container_width)
+
+
+# --- Pricing & Promo helper: ensure columns ---
+def _ensure_pricing_cols(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+    """Гарантируем минимальный набор колонок для Pricing & Promo Lab."""
+    missing: list[str] = []
+    a = df.copy()
+
+    # qty
+    if "total_qty" not in a.columns:
+        for alias in ["net_qty", "shipped_qty", "qty"]:
+            if alias in a.columns:
+                a["total_qty"] = pd.to_numeric(a[alias], errors="coerce")
+                break
+    if "total_qty" not in a.columns:
+        missing.append("total_qty")
+
+    # avg_net_price_per_unit
+    if "avg_net_price_per_unit" not in a.columns:
+        if {"net_revenue","total_qty"}.issubset(a.columns):
+            a["avg_net_price_per_unit"] = (
+                pd.to_numeric(a["net_revenue"], errors="coerce").fillna(0) /
+                pd.to_numeric(a["total_qty"], errors="coerce").replace(0, np.nan)
+            ).fillna(0)
+        elif {"total_rev","total_qty"}.issubset(a.columns):
+            a["avg_net_price_per_unit"] = (
+                pd.to_numeric(a["total_rev"], errors="coerce").fillna(0) /
+                pd.to_numeric(a["total_qty"], errors="coerce").replace(0, np.nan)
+            ).fillna(0)
+        else:
+            missing.append("avg_net_price_per_unit")
+
+    # production_cost_per_unit
+    if "production_cost_per_unit" not in a.columns:
+        if {"cogs","total_qty"}.issubset(a.columns):
+            a["production_cost_per_unit"] = (
+                pd.to_numeric(a["cogs"], errors="coerce").fillna(0) /
+                pd.to_numeric(a["total_qty"], errors="coerce").replace(0, np.nan)
+            ).fillna(0)
+        elif "production_cost" in a.columns:
+            a["production_cost_per_unit"] = pd.to_numeric(a["production_cost"], errors="coerce").fillna(0)
+        else:
+            missing.append("production_cost_per_unit")
+
+    # commission_per_unit
+    if "commission_per_unit" not in a.columns:
+        if {"total_fee","total_qty"}.issubset(a.columns):
+            a["commission_per_unit"] = (
+                pd.to_numeric(a["total_fee"], errors="coerce").fillna(0) /
+                pd.to_numeric(a["total_qty"], errors="coerce").replace(0, np.nan)
+            ).fillna(0)
+        else:
+            missing.append("commission_per_unit")
+
+    # promo_per_unit
+    if "promo_per_unit" not in a.columns:
+        if {"promo_cost","total_qty"}.issubset(a.columns):
+            a["promo_per_unit"] = (
+                pd.to_numeric(a["promo_cost"], errors="coerce").fillna(0) /
+                pd.to_numeric(a["total_qty"], errors="coerce").replace(0, np.nan)
+            ).fillna(0)
+        else:
+            missing.append("promo_per_unit")
+
+    return a, missing
 
 import sys
 ROOT = Path(__file__).resolve().parents[2]      # .../my_ozon_analytics
@@ -164,7 +375,7 @@ with st.sidebar:
     st.markdown("---")
     page = st.radio(
         "Навигация",
-        ["Обзор", "Ассортимент", "SKU детально", "Unit Economics", "ABC/XYZ", "Остатки", "Returns Lab", "Pricing & Promo", "Forecast vs Actual", "Risk (Monte Carlo)", "What-if"],
+        ["Обзор", "Ассортимент", "SKU детально", "Unit Economics", "ABC/XYZ", "Остатки", "Returns Lab", "Pricing & Promo", "Forecast vs Actual", "Risk (Monte Carlo)", "What-if", "About & Diagnostics"],
         index=0,
     )
     top_n = st.number_input("TOP N (для рейтингов)", min_value=5, max_value=50, value=10, step=5)
@@ -207,9 +418,10 @@ promo_sum = float(analytics.get("promo_cost", pd.Series(dtype=float)).sum())
 with st.sidebar:
     st.markdown("---")
     st.markdown("## 📅 Фильтры")
+    granularity = st.radio("Гранулярность", ["День","Неделя","Месяц"], index=0, horizontal=True)
     date_from = st.date_input("С даты", value=pd.to_datetime("2025-01-01"))
     date_to   = st.date_input("По дату", value=pd.to_datetime("today"))
-    cogs_mode = st.selectbox("COGS режим", ["NET", "GROSS"], index=0)
+    cogs_mode = st.selectbox("COGS режим", ["NET", "GROSS"], index=(0 if COGS_MODE == "NET" else 1))
     # динамический список SKU
     _sku_list = sorted(analytics["sku"].astype(str).unique().tolist())
     selected_sku = st.multiselect("SKU", _sku_list[:50], max_selections=50)
@@ -229,6 +441,22 @@ if "period" in _monthly.columns:
 if selected_sku:
     _daily = _daily[_daily["sku"].astype(str).isin(selected_sku)] if not _daily.empty else _daily
     _monthly = _monthly[_monthly["sku"].astype(str).isin(selected_sku)] if not _monthly.empty else _monthly
+
+# --- Granularity series for trends ---
+try:
+    aggs = aggregate_from_daily(fact_daily)
+except Exception:
+    aggs = {"daily": pd.DataFrame(), "weekly": pd.DataFrame(), "monthly": pd.DataFrame()}
+
+if granularity == "День":
+    series_df = aggs["daily"].rename(columns={"date": "period"})
+    sma_window = 7
+elif granularity == "Неделя":
+    series_df = aggs["weekly"]
+    sma_window = 4
+else:
+    series_df = aggs["monthly"]
+    sma_window = 3
 
 
 # ---------- Страницы ----------
@@ -259,8 +487,8 @@ def page_overview():
         else:
             _returns_rub = 0.0
         _promo_rub = float(_daily.get("promo_rub", pd.Series(dtype=float)).sum()) if not _daily.empty else float(promo_sum)
-        # Рискованные SKU: возвраты% > 5 п.п. или маржа < 0 (если столбцы есть)
-        thr = 5.0
+        # Рискованные SKU: возвраты% > RETURNS_ALERT_PCT п.п. или маржа < 0 (если столбцы есть)
+        thr = float(RETURNS_ALERT_PCT)
         if {"returns_pct", "margin"}.issubset(analytics.columns):
             risk_cnt = int(((analytics["returns_pct"] > thr) | (analytics["margin"] < 0)).sum())
         elif "returns_pct" in analytics.columns:
@@ -284,15 +512,75 @@ def page_overview():
                 hover_data=["sku"], title="Маржа vs Выручка по SKU"
             )
             st.plotly_chart(fig, use_container_width=True)
+            render_caption(
+                title="Маржа vs Выручка по SKU (ABC-анализ)",
+                bullets=[
+                    "Ось X — выручка по SKU",
+                    "Ось Y — маржа по SKU",
+                    "Цвет — ABC-класс: A — лидеры оборота, B — средние, C — хвост",
+                ],
+                note="Как читать: точки ниже оси X — убыточные SKU; правее — больший оборот. Приоритет на разбор — левый нижний квадрант.",
+            )
 
-    # Линия выручки + SMA7
-    if not _daily.empty and {"date", "order_value_rub_sum"}.issubset(_daily.columns):
-        ts = _daily.groupby("date", as_index=False)["order_value_rub_sum"].sum().sort_values("date")
-        ts["SMA_7"] = ts["order_value_rub_sum"].rolling(7, min_periods=1).mean()
+    # Линия выручки + SMA (адаптивно: день/неделя/месяц)
+    if _has(series_df, ["period", "order_value_rub_sum"]):
+        ts = series_df[["period", "order_value_rub_sum"]].sort_values("period").copy()
+        if len(ts) >= 2:
+            ts["SMA"] = ts["order_value_rub_sum"].rolling(sma_window, min_periods=1).mean()
         st.plotly_chart(
-            charts.line(ts, x="date", y=["order_value_rub_sum", "SMA_7"], title="Дневная выручка + SMA7", show_legend=True),
+            charts.line(ts, x="period", y=[c for c in ["order_value_rub_sum", "SMA"] if c in ts.columns],
+                        title=f"Динамика выручки · {granularity}"),
             use_container_width=True,
         )
+        render_caption(
+            title=f"Динамика выручки · {granularity}",
+            bullets=[
+                "Ось X — период (день/неделя/месяц)",
+                "Ось Y — выручка, ₽",
+                f"Синяя линия — сглаживание SMA{str(sma_window)}",
+            ],
+            note=trend_summary(ts.rename(columns={"period": "date"}), "date", "order_value_rub_sum", sma_window=sma_window),
+        )
+    else:
+        st.info("Нет данных для построения динамики.")
+# --- Diagnostics page ---
+import sys as _sys_diag, platform as _platform_diag, io as _io_diag, json as _json_diag
+
+def page_about_diag(fact_daily, fact_monthly, analytics, forecast):
+    st.subheader("About & Diagnostics")
+    st.write({
+        "python": _sys_diag.version.split()[0],
+        "platform": _platform_diag.platform(),
+        "streamlit": st.__version__,
+        "pandas": pd.__version__,
+        "data_source": "GOLD_BASE_URL" if st.secrets.get("GOLD_BASE_URL") else "repo gold/"
+    })
+    def shape(df):
+        return {"rows": int(len(df)),
+                "cols": int(df.shape[1]) if not df.empty else 0,
+                "columns": list(df.columns[:10]) if not df.empty else []}
+    st.write({
+        "fact_sku_daily": shape(fact_daily),
+        "fact_sku_monthly": shape(fact_monthly),
+        "mart_unit_econ": shape(analytics),
+        "forecast_sku_monthly": shape(forecast),
+    })
+    def ssum(df, col):
+        return float(pd.to_numeric(df.get(col, pd.Series(dtype=float)),
+                                   errors="coerce").fillna(0).sum()) if not df.empty else 0.0
+    snapshot = {
+        "kpi_sums": {
+            "order_value_rub_sum_daily": ssum(fact_daily, "order_value_rub_sum"),
+            "shipped_qty_daily": ssum(fact_daily, "shipped_qty"),
+            "returns_rub_daily": ssum(fact_daily, "returns_rub"),
+            "returns_qty_daily": ssum(fact_daily, "returns_qty"),
+            "cogs_mart": ssum(analytics, "cogs"),
+            "margin_mart": ssum(analytics, "margin"),
+        }
+    }
+    buf = _io_diag.StringIO(); _json_diag.dump(snapshot, buf, ensure_ascii=False, indent=2)
+    st.download_button("Скачать snapshot.json", buf.getvalue(),
+                       file_name="snapshot.json", mime="application/json")
 
     # Топ-лист
     st.markdown(f"#### ТОП-{int(top_n)} прибыльных / убыточных SKU")
@@ -379,6 +667,14 @@ def page_overview():
         title="Мостик Unit Economics",
     )
     st.plotly_chart(fig_wf, use_container_width=True)
+    render_caption(
+        title="Unit economics: мостик выручка → маржа",
+        bullets=[
+            "Столбцы — последовательные эффекты: возвраты, комиссия, промо, COGS",
+            "Последний столбец — итоговая маржа",
+        ],
+        note="Как читать: какой фактор «съедает» больше всего маржи, туда и направляем первую оптимизацию.",
+    )
 
 # --- Returns Lab page ---
 def page_returns_lab():
@@ -389,6 +685,15 @@ def page_returns_lab():
                             hover_data=[c for c in ["sku", "total_rev", "net_revenue"] if c in analytics.columns], title="Маржа vs Возвраты, %")
         fig_sc.update_layout(template="plotly_white")
         st.plotly_chart(fig_sc, use_container_width=True)
+        render_caption(
+            title="Маржа vs Возвраты",
+            bullets=[
+                "Ось X — возвраты, %",
+                "Ось Y — маржа, ₽",
+                "Цвет — категория (если присутствует)",
+            ],
+            note="Зона риска — высокая доля возвратов и низкая маржа; начните разбор с этих точек."
+        )
     else:
         st.info("Нет необходимых колонок 'returns_pct' и 'margin' в analytics.")
 
@@ -396,21 +701,40 @@ def page_returns_lab():
     if not _daily.empty and {"date", "sku"}.issubset(_daily.columns) and "returns_qty" in _daily.columns:
         pv = (_daily.pivot_table(index="sku", columns="date", values="returns_qty", aggfunc="sum").fillna(0))
         st.plotly_chart(charts.heatmap_pivot(pv, title="Возвраты по дням и SKU"), use_container_width=True)
+        render_caption(
+            title="Тепловая карта возвратов",
+            bullets=[
+                "Ось X — даты, ось Y — SKU",
+                "Оттенок — количество возвратов",
+            ],
+            note="Тёмные вертикальные полосы — проблемные даты/партии; сплошные тёмные строки — проблемные SKU."
+        )
     else:
         st.info("Недостаточно данных для тепловой карты (нужны 'date', 'sku', 'returns_qty' в daily).")
 
 # --- Pricing & Promo Lab page ---
 def page_pricing_promo():
     st.markdown("### 💸 Pricing & Promo Lab")
-    if not {"avg_net_price_per_unit", "production_cost_per_unit", "commission_per_unit", "promo_intensity_pct", "total_qty", "sku"}.issubset(analytics.columns):
-        st.info("Недостаточно колонок в analytics для расчёта сценариев ценообразования/промо.")
+    a0 = analytics.copy()
+    a, miss = _ensure_pricing_cols(a0)
+
+    # обязательные для интерфейса поля
+    if "sku" not in a.columns:
+        st.info("Недостаточно колонок для расчёта: sku")
+        return
+    # если нет интенсивности промо — считаем её нулём
+    if "promo_intensity_pct" not in a.columns:
+        a["promo_intensity_pct"] = 0.0
+
+    if miss:
+        st.info("Недостаточно колонок для расчёта: " + ", ".join(miss))
         return
 
     price_delta = st.slider("Δ Цена, %", -20, 20, 0)
     promo_delta = st.slider("Δ Промо, п.п.", -20, 20, 0)
     commission_delta = st.slider("Δ Комиссия, п.п.", -10, 10, 0)
 
-    df = analytics.copy()
+    df = a.copy()
     df["avg_net_price_per_unit_adj"] = df["avg_net_price_per_unit"] * (1 + price_delta/100)
     df["promo_intensity_pct_adj"] = (df["promo_intensity_pct"] + promo_delta).clip(0, 100)
     df["commission_per_unit_adj"] = df["commission_per_unit"] * (1 + commission_delta/100)
@@ -424,7 +748,16 @@ def page_pricing_promo():
     df["margin_adj"] = df["margin_per_unit_adj"] * df["total_qty"]
 
     st.plotly_chart(charts.bar(df.nlargest(int(top_n), "margin_adj"), x="sku", y="margin_adj", title="Маржа после изменений", orientation="v", y_is_currency=True), use_container_width=True)
+    render_caption(
+        title="Сценарий после изменений цены/промо/комиссии",
+        bullets=[
+            "Столбики — маржа по SKU после применённых дельт",
+            "Изменения применяются к цене (нетто), промо и комиссии",
+        ],
+        note="Проверьте ТОП убыточных после изменений — возможно, их лучше исключить из промо."
+    )
 
+# --- Forecast vs Actual page ---
 # --- Forecast vs Actual page ---
 def page_fva():
     st.markdown("### 📈 Forecast vs Actual")
@@ -434,19 +767,79 @@ def page_fva():
     except Exception:
         forecast = pd.DataFrame()
 
-    if _monthly.empty:
+    # --- Приводим факт к помесячному формату YYYY-MM ---
+    fact = _monthly.copy()
+    if fact.empty:
         st.info("Нет факта по месяцам для отображения.")
         return
 
-    fact = _monthly.groupby("period", as_index=False)["shipped_qty"].sum()
+    # допуски по именованию: period/date, shipped_qty/qty
+    if "period" not in fact.columns and "date" in fact.columns:
+        fact = fact.rename(columns={"date": "period"})
+    fact["period"] = pd.to_datetime(fact["period"], errors="coerce").dt.to_period("M").astype(str)
 
-    if not forecast.empty and {"period", "forecast_qty"}.issubset(forecast.columns):
-        m = fact.merge(forecast[["period", "forecast_qty"]], on="period", how="outer").fillna(0).sort_values("period")
-        m["period_str"] = m["period"].astype(str)
-        st.plotly_chart(charts.line(m, x="period_str", y=["shipped_qty", "forecast_qty"], title="Forecast vs Actual"), use_container_width=True)
+    if "shipped_qty" not in fact.columns and "qty" in fact.columns:
+        fact = fact.rename(columns={"qty": "shipped_qty"})
+
+    fact = fact.groupby("period", as_index=False)["shipped_qty"].sum()
+
+    # --- Приводим прогноз к формату YYYY-MM и стандартным именам ---
+    fc = forecast.copy()
+    if not fc.empty:
+        # aliases for period
+        if "period" not in fc.columns:
+            for c in ["month", "date", "period_str"]:
+                if c in fc.columns:
+                    fc = fc.rename(columns={c: "period"})
+                    break
+        # aliases for forecast qty
+        if "forecast_qty" not in fc.columns:
+            for c in ["qty", "forecast", "forecast_sku_qty", "plan_qty"]:
+                if c in fc.columns:
+                    fc = fc.rename(columns={c: "forecast_qty"})
+                    break
+
+        if "period" in fc.columns:
+            fc["period"] = pd.to_datetime(fc["period"], errors="coerce").dt.to_period("M").astype(str)
+        if "forecast_qty" in fc.columns:
+            fc = fc.groupby("period", as_index=False)["forecast_qty"].sum()
+        else:
+            # если нет колонки прогнозного объёма — считаем прогноз недоступным
+            fc = pd.DataFrame(columns=["period", "forecast_qty"])
     else:
-        fact["period_str"] = fact["period"].astype(str)
-        st.plotly_chart(charts.line(fact, x="period_str", y="shipped_qty", title="Факт отгрузок (прогноз не найден)"), use_container_width=True)
+        fc = pd.DataFrame(columns=["period", "forecast_qty"])
+
+    # --- Merge и графики ---
+    m = fact.merge(fc, on="period", how="outer").fillna(0.0).sort_values("period")
+
+    y_cols = [c for c in ["shipped_qty", "forecast_qty"] if c in m.columns]
+    if not y_cols:
+        st.info("Нет колонок для сравнения Forecast vs Actual.")
+        return
+
+    st.plotly_chart(
+        charts.line(m, x="period", y=y_cols, title="Forecast vs Actual"),
+        use_container_width=True
+    )
+    if len(y_cols) == 2:
+        render_caption(
+            title="Forecast vs Actual",
+            bullets=[
+                "Ось X — период (месяц)",
+                "Синяя линия — факт отгрузок",
+                "Оранжевая линия — прогноз/план",
+            ],
+            note="Отклонения помогают скорректировать план производства и промо-активности."
+        )
+    else:
+        render_caption(
+            title="Факт отгрузок",
+            bullets=[
+                "Ось X — период (месяц)",
+                "Ось Y — отгружено, шт.",
+            ],
+            note="Файл с прогнозом не найден: добавьте forecast_sku_monthly.csv в GOLD, чтобы видеть сравнение."
+        )
 # ---------- Новая страница "Ассортимент" ----------
 
 def page_assortment():
@@ -463,6 +856,14 @@ def page_assortment():
                             color_continuous_scale="RdYlGn", title="Treemap: вклад в выручку")
         fig_tm.update_layout(margin=dict(l=8, r=8, t=48, b=8), template="plotly_white")
         st.plotly_chart(fig_tm, use_container_width=True)
+        render_caption(
+            title="Treemap ассортимента",
+            bullets=[
+                "Размер плитки — вклад SKU/категории в выручку",
+                "Цвет — маржа (краснее — ниже, зеленее — выше)",
+            ],
+            note="Как читать: крупные красные плитки — кандидаты на пересмотр цены, COGS или промо."
+        )
     else:
         st.info("Для treemap нужны колонки 'sku' и 'total_rev'.")
 
@@ -481,6 +882,14 @@ def page_assortment():
             yaxis2=dict(title="%", overlaying='y', side='right', range=[0, 100])
         )
         st.plotly_chart(fig_p, use_container_width=True)
+        render_caption(
+            title="Pareto 80/20 по выручке",
+            bullets=[
+                "Столбики — выручка по SKU",
+                "Линия — накопительная доля (шкала справа)",
+            ],
+            note="Обычно 20% SKU дают ~80% выручки — на них фокусируемся в первую очередь."
+        )
     else:
         st.info("Нет необходимых колонок для Pareto (нужны 'sku' и 'total_rev').")
 
@@ -541,6 +950,14 @@ def page_sku_detail():
     ]
     st.markdown("#### Unit-economics (единица)")
     st.dataframe(row[["sku"] + [c for c in keep_cols if c in row.columns]].reset_index(drop=True))
+    render_caption(
+        title="SKU детально",
+        bullets=[
+            "Помесячная динамика показывает сезонность и эффект акций",
+            "Сравнение фактической маржи со средними значениями по портфелю",
+        ],
+        note="Если маржа ниже портфельной и возвраты выше среднего — проверьте цену, COGS и качество логистики.",
+    )
 
     # Водопад Unit Economics по выбранному SKU
     r = row.iloc[0]
@@ -559,6 +976,14 @@ def page_sku_detail():
     labels = ["Валовая выручка", "- Возвраты", "- Комиссия", "- Промо", "- COGS", "Маржа (итог)"]
     values = [rev, -returns_rub, -commission_rub, -promo_rub, -cogs_rub, rev - returns_rub - commission_rub - promo_rub - cogs_rub]
     st.plotly_chart(charts.waterfall(labels, values, title="Unit Econ: мостик по SKU"), use_container_width=True)
+    render_caption(
+        title="Unit economics: мостик выручка → маржа",
+        bullets=[
+            "Столбцы — последовательные эффекты: возвраты, комиссия, промо, COGS",
+            "Последний столбец — итоговая маржа",
+        ],
+        note="Как читать: какой фактор «съедает» больше всего маржи, туда и направляем первую оптимизацию.",
+    )
 
 
 def page_unit_econ():
@@ -584,6 +1009,15 @@ def page_unit_econ():
     })
     fig_bar = charts.bar(df, x="component", y="value", title="Разложение единичной экономики")
     st.plotly_chart(fig_bar, use_container_width=True)
+    render_caption(
+        title="Разложение единичной экономики",
+        bullets=[
+            "Цена (нетто) — исходная выручка на единицу",
+            "Минусы — себестоимость, комиссия и промо",
+            "Итог — маржа на единицу",
+        ],
+        note="Если маржа/ед. близка к нулю или отрицательна — меняем цену, COGS или условия комиссии."
+    )
 
     # Порог безубыточности
     be = float(r.get("break_even_price", prod + comm + promo))
@@ -955,3 +1389,6 @@ elif page == "Risk (Monte Carlo)":
     page_risk()
 elif page == "What-if":
     page_what_if()
+elif page == "About & Diagnostics":
+    # если нет глобального forecast, передадим пустой DataFrame
+    page_about_diag(fact_daily, fact_monthly, analytics, pd.DataFrame())
