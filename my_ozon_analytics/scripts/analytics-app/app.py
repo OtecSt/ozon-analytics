@@ -1,4 +1,3 @@
-from __future__ import annotations
 
 import sys
 from pathlib import Path
@@ -23,8 +22,6 @@ except Exception as e:
     print(f"[ERROR] Failed to import monte_carlo: {e}")
     mc = None
 
-# app.py
-from __future__ import annotations
 
 import io
 from typing import Dict
