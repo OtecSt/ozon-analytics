@@ -1,3 +1,4 @@
+from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
@@ -15,9 +16,6 @@ class MCConfig:
 def build_sim(cfg: "MCConfig") -> MonteCarloSimulator:
     return MonteCarloSimulator(n_sims=int(cfg.n_sims), random_state=cfg.seed)
 # monte_carlo.py
-from __future__ import annotations
-
-from dataclasses import dataclass
 from typing import Dict, Iterable, Literal, Mapping, Optional, Tuple
 
 import numpy as np
@@ -327,11 +325,6 @@ class MonteCarloSimulator:
         rr_mat = _clip01(rr_mat)
         qty_row = qty_vec.reshape(1, T).astype(float)
         net_qty_mat = qty_row * (1.0 - rr_mat)  # shape=(n, T)
-
-        total_margin = (net_qty_mat @ unit_margin.reshape(-1, 1)).ravel()  # (n,T) @ (n,1) — не то! починим ниже
-
-        # ↑ ошибка размерностей: unit_margin имеет shape (n,), а нам нужно домножить поэлементно
-        # для каждого сэмпла одна unit_margin. Пересчитаем корректно:
         total_margin = (net_qty_mat.sum(axis=1)) * unit_margin  # (n,)* (n,) => (n,)
 
         # --- сводки ---
