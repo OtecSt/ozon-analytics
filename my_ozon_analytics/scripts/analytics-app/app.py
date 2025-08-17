@@ -1,3 +1,26 @@
+import sys
+from pathlib import Path
+
+# Абсолютные пути
+APP_DIR = Path(__file__).resolve().parent
+SCRIPTS_DIR = APP_DIR.parent
+ROOT_DIR = SCRIPTS_DIR.parent
+
+for p in (APP_DIR, SCRIPTS_DIR, ROOT_DIR):
+    if str(p) not in sys.path:
+        sys.path.insert(0, str(p))
+
+# Проверка на месте ли модуль
+mc_path = APP_DIR / "monte_carlo.py"
+print(f"[DEBUG] monte_carlo exists: {mc_path.exists()} at {mc_path}")
+
+try:
+    import monte_carlo as mc
+    print(f"[DEBUG] monte_carlo imported OK from {getattr(mc, '__file__', '?')}")
+except Exception as e:
+    print(f"[ERROR] Failed to import monte_carlo: {e}")
+    mc = None
+
 # app.py
 from __future__ import annotations
 
@@ -222,12 +245,6 @@ def _ensure_pricing_cols(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
 
     return a, missing
 
-import sys
-ROOT = Path(__file__).resolve().parents[2]      # .../my_ozon_analytics
-SCRIPTS = Path(__file__).resolve().parents[1]   # .../my_ozon_analytics/scripts
-for p in (str(SCRIPTS), str(ROOT)):
-    if p not in sys.path:
-        sys.path.append(p)
 
 # Локальные компоненты (простые KPI и графики на Plotly)
 try:
@@ -269,12 +286,18 @@ except Exception:
             fig = go.Figure(data=go.Heatmap(z=pivot.values, x=list(pivot.columns), y=list(pivot.index)))
             fig.update_layout(title=title)
             return fig
+        @staticmethod
+        def waterfall(labels, values, title=None):
+            fig = go.Figure(go.Waterfall(
+                orientation="v",
+                measure=["relative"] * (len(values) - 1) + ["total"],
+                x=labels,
+                y=values,
+                connector={"line": {"color": "#888", "width": 1}},
+            ))
+            fig.update_layout(title=title, template="plotly_white", margin=dict(l=8, r=8, t=48, b=8))
+            return fig
 
-# Monte Carlo
-try:
-    import monte_carlo as mc
-except Exception:
-    mc = None
 
 # Пытаться использовать ваш data_loader, но иметь фоллбек
 try:
@@ -367,7 +390,7 @@ with st.sidebar:
     st.markdown("## ⚙️ Данные")
     gold_dir = st.text_input(
         "Папка GOLD (CSV)",
-        value=str(ROOT / "gold"),
+        value=str(ROOT_DIR / "gold"),  # исправили ROOT → ROOT_DIR
         help="Папка с fact_sku_daily.csv, fact_sku_monthly.csv, mart_unit_econ.csv",
     )
     reload_btn = st.button("🔄 Перезагрузить")
@@ -598,9 +621,15 @@ def page_about_diag(fact_daily, fact_monthly, analytics, forecast):
         }
         c1, c2 = st.columns(2)
         with c1:
-            st.dataframe(top.rename(columns={k: v for k, v in rename_map.items() if k in cols_present}))
+            show_table_ru(
+                top.rename(columns={k: v for k, v in rename_map.items() if k in cols_present}),
+                title=f"ТОП-{int(top_n)} прибыльных SKU"
+            )
         with c2:
-            st.dataframe(flop.rename(columns={k: v for k, v in rename_map.items() if k in cols_present}))
+            show_table_ru(
+                flop.rename(columns={k: v for k, v in rename_map.items() if k in cols_present}),
+                title=f"ТОП-{int(top_n)} убыточных SKU"
+            )
     else:
         st.info("В analytics нет столбца 'margin' — сформируйте GOLD через build_gold.py.")
 
@@ -1091,14 +1120,12 @@ def page_inventory():
     # ТОП по остаткам
     if "ending_stock" in analytics.columns:
         top_end = analytics.sort_values("ending_stock", ascending=False).head(20)[["sku", "ending_stock", "average_inventory", "inventory_turnover"]]
-        st.markdown("#### Топ-20 по остаткам")
-        st.dataframe(top_end)
+        show_table_ru(top_end, title="Топ-20 по остаткам")
 
     # Фильтр по SKU и отображение ряда
     sku = st.selectbox("SKU", options=sku_list, index=0, key="inv_sku")
     sub = analytics.loc[analytics["sku"] == sku]
-    st.markdown("#### Профиль SKU")
-    st.dataframe(sub[[c for c in have_inv_cols + ["sku"] if c in sub.columns]])
+    show_table_ru(sub[[c for c in have_inv_cols + ["sku"] if c in sub.columns]], title="Профиль SKU")
 
 
 def page_what_if():
