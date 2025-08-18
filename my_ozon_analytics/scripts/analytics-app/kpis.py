@@ -1,3 +1,4 @@
+from __future__ import annotations
 # Нормализация входного элемента KPI: поддержка dict и (title, value[, delta])
 from collections.abc import Iterable as _Iterable
 
@@ -30,7 +31,6 @@ def _normalize_kpi_item(it: Any) -> dict:
 
 # components/kpis.py
 # Унифицированные KPI-блоки для Streamlit.
-from __future__ import annotations
 
 from typing import Any, Iterable, Optional
 
