@@ -1,5 +1,3 @@
-
-from __future__ import annotations
 import sys
 from pathlib import Path
 
@@ -12,17 +10,6 @@ for p in (APP_DIR, SCRIPTS_DIR, ROOT_DIR):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
-# Проверка на месте ли модуль
-mc_path = APP_DIR / "monte_carlo.py"
-print(f"[DEBUG] monte_carlo exists: {mc_path.exists()} at {mc_path}")
-
-try:
-    import monte_carlo as mc
-    print(f"[DEBUG] monte_carlo imported OK from {getattr(mc, '__file__', '?')}")
-except Exception as e:
-    print(f"[ERROR] Failed to import monte_carlo: {e}")
-    mc = None
-
 
 import io
 from typing import Dict
@@ -31,8 +18,35 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+
 import plotly.express as px
 import plotly.graph_objects as go
+
+# Унифицированный рендер Plotly с русской локалью
+def st_plot(fig):
+    try:
+        import streamlit as _st_local
+        _st_local.plotly_chart(
+            fig,
+            use_container_width=True,
+            config={"locale": "ru", "displayModeBar": False},
+        )
+    except Exception:
+        # Фоллбек без конфига
+        st.plotly_chart(fig, use_container_width=True)
+
+# ---- Monte Carlo module (safe, cached import) ----
+import importlib
+
+@st.cache_resource
+def _try_import_mc():
+    try:
+        return importlib.import_module("monte_carlo")
+    except Exception as e:
+        st.session_state["mc_import_error"] = f"{e}"
+        return None
+
+mc = _try_import_mc()
 
 # ---- Unified config access (secrets/env) ----
 def _cfg(key: str, default=None):
@@ -174,10 +188,43 @@ def df_ru(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
 def show_table_ru(df: pd.DataFrame, title: str | None = None, use_container_width: bool = True):
-    """Отображает таблицу с русскими заголовками (если известны)."""
+    """Отображает таблицу с русскими заголовками и форматированием ₽ / % / шт."""
+    if df is None or df.empty:
+        if title:
+            st.markdown(f"#### {title}")
+        st.info("Нет данных для отображения.")
+        return
+
+    df2 = df.copy()
+
+    # Определяем типовые колонки по названию
+    money_like = [c for c in df2.columns if any(k in c for k in
+                   ["rev", "revenue", "margin", "cogs", "promo", "returns_rub", "commission", "price", "cost"])]
+    pct_like   = [c for c in df2.columns if c.endswith("_pct") or c in
+                   {"margin_pct", "returns_pct", "promo_intensity_pct"}]
+    qty_like   = [c for c in df2.columns if any(k in c for k in
+                   ["qty", "shipments", "stock", "inventory"])]
+
+    # Форматирование
+    for c in money_like:
+        if c in df2.columns:
+            df2[c] = pd.to_numeric(df2[c], errors="coerce").fillna(0)\
+                        .map(lambda x: f"{x:,.0f} ₽".replace(",", " "))
+    for c in pct_like:
+        if c in df2.columns:
+            df2[c] = pd.to_numeric(df2[c], errors="coerce").fillna(0)\
+                        .map(lambda x: f"{x:.1f}%")
+    for c in qty_like:
+        if c in df2.columns:
+            df2[c] = pd.to_numeric(df2[c], errors="coerce").fillna(0).astype(int)\
+                        .map(lambda x: f"{x:,}".replace(",", " "))
+
+    # Русские заголовки
+    df2 = df_ru(df2)
+
     if title:
         st.markdown(f"#### {title}")
-    st.dataframe(df_ru(df), use_container_width=use_container_width)
+    st.dataframe(df2, use_container_width=use_container_width)
 
 
 # --- Pricing & Promo helper: ensure columns ---
@@ -316,7 +363,7 @@ except Exception:
 # ---------- Общие настройки ----------
 
 st.set_page_config(
-    page_title="Ozon Analytics & Planning",
+    page_title="Аналитика и планирование Ozon",
     page_icon="📦",
     layout="wide",
 )
@@ -403,7 +450,15 @@ with st.sidebar:
     top_n = st.number_input("TOP N (для рейтингов)", min_value=5, max_value=50, value=10, step=5)
 
 if reload_btn:
-    load_bundle.clear()
+    try:
+        load_bundle.clear()
+    except Exception:
+        pass
+    try:
+        st.cache_data.clear()
+    except Exception:
+        pass
+    st.experimental_rerun()
 
 # Проверка существования каталога GOLD до загрузки
 _gdir = Path(gold_dir)
@@ -533,7 +588,7 @@ def page_overview():
                 x="revenue", y="margin", color="ABC_class" if "ABC_class" in analytics.columns else None,
                 hover_data=["sku"], title="Маржа vs Выручка по SKU"
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st_plot(fig)
             render_caption(
                 title="Маржа vs Выручка по SKU (ABC-анализ)",
                 bullets=[
@@ -549,11 +604,8 @@ def page_overview():
         ts = series_df[["period", "order_value_rub_sum"]].sort_values("period").copy()
         if len(ts) >= 2:
             ts["SMA"] = ts["order_value_rub_sum"].rolling(sma_window, min_periods=1).mean()
-        st.plotly_chart(
-            charts.line(ts, x="period", y=[c for c in ["order_value_rub_sum", "SMA"] if c in ts.columns],
-                        title=f"Динамика выручки · {granularity}"),
-            use_container_width=True,
-        )
+        st_plot(charts.line(ts, x="period", y=[c for c in ["order_value_rub_sum", "SMA"] if c in ts.columns],
+                            title=f"Динамика выручки · {granularity}"))
         render_caption(
             title=f"Динамика выручки · {granularity}",
             bullets=[
@@ -694,7 +746,7 @@ def page_about_diag(fact_daily, fact_monthly, analytics, forecast):
         margin=dict(l=8, r=8, t=48, b=8),
         title="Мостик Unit Economics",
     )
-    st.plotly_chart(fig_wf, use_container_width=True)
+    st_plot(fig_wf)
     render_caption(
         title="Unit economics: мостик выручка → маржа",
         bullets=[
@@ -712,7 +764,7 @@ def page_returns_lab():
         fig_sc = px.scatter(analytics, x="returns_pct", y="margin", color=("category" if "category" in analytics.columns else None),
                             hover_data=[c for c in ["sku", "total_rev", "net_revenue"] if c in analytics.columns], title="Маржа vs Возвраты, %")
         fig_sc.update_layout(template="plotly_white")
-        st.plotly_chart(fig_sc, use_container_width=True)
+        st_plot(fig_sc)
         render_caption(
             title="Маржа vs Возвраты",
             bullets=[
@@ -728,7 +780,7 @@ def page_returns_lab():
     # Heatmap: возвраты по дням и SKU
     if not _daily.empty and {"date", "sku"}.issubset(_daily.columns) and "returns_qty" in _daily.columns:
         pv = (_daily.pivot_table(index="sku", columns="date", values="returns_qty", aggfunc="sum").fillna(0))
-        st.plotly_chart(charts.heatmap_pivot(pv, title="Возвраты по дням и SKU"), use_container_width=True)
+        st_plot(charts.heatmap_pivot(pv, title="Возвраты по дням и SKU"))
         render_caption(
             title="Тепловая карта возвратов",
             bullets=[
@@ -775,7 +827,7 @@ def page_pricing_promo():
     )
     df["margin_adj"] = df["margin_per_unit_adj"] * df["total_qty"]
 
-    st.plotly_chart(charts.bar(df.nlargest(int(top_n), "margin_adj"), x="sku", y="margin_adj", title="Маржа после изменений", orientation="v", y_is_currency=True), use_container_width=True)
+    st_plot(charts.bar(df.nlargest(int(top_n), "margin_adj"), x="sku", y="margin_adj", title="Маржа после изменений", orientation="v", y_is_currency=True))
     render_caption(
         title="Сценарий после изменений цены/промо/комиссии",
         bullets=[
@@ -845,10 +897,7 @@ def page_fva():
         st.info("Нет колонок для сравнения Forecast vs Actual.")
         return
 
-    st.plotly_chart(
-        charts.line(m, x="period", y=y_cols, title="Forecast vs Actual"),
-        use_container_width=True
-    )
+    st_plot(charts.line(m, x="period", y=y_cols, title="Forecast vs Actual"))
     if len(y_cols) == 2:
         render_caption(
             title="Forecast vs Actual",
@@ -883,7 +932,7 @@ def page_assortment():
         fig_tm = px.treemap(df_tm, path=path_cols, values="total_rev", color=("margin" if "margin" in df_tm.columns else None),
                             color_continuous_scale="RdYlGn", title="Treemap: вклад в выручку")
         fig_tm.update_layout(margin=dict(l=8, r=8, t=48, b=8), template="plotly_white")
-        st.plotly_chart(fig_tm, use_container_width=True)
+        st_plot(fig_tm)
         render_caption(
             title="Treemap ассортимента",
             bullets=[
@@ -909,7 +958,7 @@ def page_assortment():
             yaxis=dict(title="Выручка, ₽"),
             yaxis2=dict(title="%", overlaying='y', side='right', range=[0, 100])
         )
-        st.plotly_chart(fig_p, use_container_width=True)
+        st_plot(fig_p)
         render_caption(
             title="Pareto 80/20 по выручке",
             bullets=[
@@ -931,10 +980,10 @@ def page_assortment():
         )
         agg["period_str"] = agg["period"].astype(str)
         fig_line = charts.line(agg, x="period_str", y="shipped_qty", title="Отгружено, шт.")
-        st.plotly_chart(fig_line, use_container_width=True)
+        st_plot(fig_line)
         if "returns_qty" in agg.columns:
             fig_line2 = charts.line(agg, x="period_str", y="returns_qty", title="Возвраты, шт.")
-            st.plotly_chart(fig_line2, use_container_width=True)
+            st_plot(fig_line2)
 
 
 def page_sku_detail():
@@ -965,10 +1014,10 @@ def page_sku_detail():
         sub["period_str"] = sub["period"].astype(str)
         c1, c2 = st.columns(2)
         with c1:
-            st.plotly_chart(charts.line(sub, x="period_str", y="shipped_qty", title="Отгружено, шт."), use_container_width=True)
+            st_plot(charts.line(sub, x="period_str", y="shipped_qty", title="Отгружено, шт."))
         with c2:
             if "returns_qty" in sub.columns:
-                st.plotly_chart(charts.line(sub, x="period_str", y="returns_qty", title="Возвраты, шт."), use_container_width=True)
+                st_plot(charts.line(sub, x="period_str", y="returns_qty", title="Возвраты, шт."))
 
     # Табличка unit-econ
     keep_cols = [
@@ -1003,7 +1052,7 @@ def page_sku_detail():
 
     labels = ["Валовая выручка", "- Возвраты", "- Комиссия", "- Промо", "- COGS", "Маржа (итог)"]
     values = [rev, -returns_rub, -commission_rub, -promo_rub, -cogs_rub, rev - returns_rub - commission_rub - promo_rub - cogs_rub]
-    st.plotly_chart(charts.waterfall(labels, values, title="Unit Econ: мостик по SKU"), use_container_width=True)
+    st_plot(charts.waterfall(labels, values, title="Unit Econ: мостик по SKU"))
     render_caption(
         title="Unit economics: мостик выручка → маржа",
         bullets=[
@@ -1036,7 +1085,7 @@ def page_unit_econ():
         "value": [price, -prod, -comm, -promo, margin_u]
     })
     fig_bar = charts.bar(df, x="component", y="value", title="Разложение единичной экономики")
-    st.plotly_chart(fig_bar, use_container_width=True)
+    st_plot(fig_bar)
     render_caption(
         title="Разложение единичной экономики",
         bullets=[
@@ -1086,15 +1135,15 @@ def page_abc_xyz():
 
         # Выручка по классам ABC и XYZ
         if {"ABC_class", "total_rev"}.issubset(analytics.columns):
-            st.plotly_chart(charts.bar(
+            st_plot(charts.bar(
                 analytics.groupby("ABC_class", as_index=False)["total_rev"].sum(),
                 x="ABC_class", y="total_rev", title="Выручка по ABC"
-            ), use_container_width=True)
+            ))
         if {"XYZ_class", "total_rev"}.issubset(analytics.columns):
-            st.plotly_chart(charts.bar(
+            st_plot(charts.bar(
                 analytics.groupby("XYZ_class", as_index=False)["total_rev"].sum(),
                 x="XYZ_class", y="total_rev", title="Выручка по XYZ"
-            ), use_container_width=True)
+            ))
 
         st.dataframe(mat)
 
@@ -1130,7 +1179,7 @@ def page_inventory():
 def page_what_if():
     st.markdown("### 🧪 What-if")
     if mc is None:
-        st.info("Модуль monte_carlo.py не найден; раздел What‑if (Монте‑Карло) временно недоступен.")
+        st.info("Модуль monte_carlo.py не загружен: " + st.session_state.get("mc_import_error", ""))
         return
 
     tab_mc, tab_plan = st.tabs(["Монте-Карло (риск-маржа)", "Прогноз/План"])
@@ -1182,7 +1231,7 @@ def page_what_if():
                 # Гистограмма
                 hist = np.histogram(samples, bins=50)
                 hist_df = pd.DataFrame({"bin_left": hist[1][:-1], "count": hist[0]})
-                st.plotly_chart(charts.bar(hist_df, x="bin_left", y="count", title="Гистограмма маржи/ед."), use_container_width=True)
+                st_plot(charts.bar(hist_df, x="bin_left", y="count", title="Гистограмма маржи/ед."))
 
                 # Скачать сэмплы
                 csv = pd.Series(samples, name="unit_margin").to_csv(index=False).encode("utf-8")
@@ -1214,7 +1263,7 @@ def page_what_if():
                 st.info(f"Вероятность отрицательной портфельной маржи: **{_format_pct(100 * float((samples < 0).mean()))}**")
                 hist = np.histogram(samples, bins=60)
                 hist_df = pd.DataFrame({"bin_left": hist[1][:-1], "count": hist[0]})
-                st.plotly_chart(charts.bar(hist_df, x="bin_left", y="count", title="Гистограмма портфельной маржи"), use_container_width=True)
+                st_plot(charts.bar(hist_df, x="bin_left", y="count", title="Гистограмма портфельной маржи"))
             except Exception as e:
                 st.error(f"Ошибка симуляции портфеля: {e}")
 
@@ -1312,7 +1361,7 @@ def page_what_if():
 def page_risk():
     st.markdown("### 🎲 Risk (Monte Carlo)")
     if mc is None:
-        st.info("Модуль monte_carlo.py не найден; раздел Monte‑Carlo временно недоступен.")
+        st.info("Модуль monte_carlo.py не загружен: " + st.session_state.get("mc_import_error", ""))
         return
 
     st.markdown("#### Распределение маржи с учётом неопределённости")
@@ -1359,7 +1408,7 @@ def page_risk():
 
             hist = np.histogram(samples, bins=50)
             hist_df = pd.DataFrame({"bin_left": hist[1][:-1], "count": hist[0]})
-            st.plotly_chart(charts.bar(hist_df, x="bin_left", y="count", title="Гистограмма маржи/ед."), use_container_width=True)
+            st_plot(charts.bar(hist_df, x="bin_left", y="count", title="Гистограмма маржи/ед."))
 
             csv = pd.Series(samples, name="unit_margin").to_csv(index=False, encoding="utf-8-sig").encode("utf-8")
             st.download_button("⬇️ Скачать распределение (CSV)", data=csv, file_name=f"mc_{sku}.csv", mime="text/csv")
@@ -1389,7 +1438,7 @@ def page_risk():
             st.info(f"Вероятность отрицательной портфельной маржи: **{_format_pct(100 * float((samples < 0).mean()))}**")
             hist = np.histogram(samples, bins=60)
             hist_df = pd.DataFrame({"bin_left": hist[1][:-1], "count": hist[0]})
-            st.plotly_chart(charts.bar(hist_df, x="bin_left", y="count", title="Гистограмма портфельной маржи"), use_container_width=True)
+            st_plot(charts.bar(hist_df, x="bin_left", y="count", title="Гистограмма портфельной маржи"))
         except Exception as e:
             st.error(f"Ошибка симуляции портфеля: {e}")
 

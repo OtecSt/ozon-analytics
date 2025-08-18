@@ -1,6 +1,8 @@
-from __future__ import annotations
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Dict, Iterable, Literal, Mapping, Tuple
+
+import numpy as np
+import pandas as pd
 
 # --- Совместимость с app.py: конфиг и фабрика симулятора ---
 @dataclass
@@ -13,10 +15,8 @@ class MCConfig:
 # ============================
 
 # Удобная фабрика под вызовы из app.py
-def build_sim(cfg: "MCConfig") -> MonteCarloSimulator:
+def build_sim(cfg: "MCConfig") -> "MonteCarloSimulator":
     return MonteCarloSimulator(n_sims=int(cfg.n_sims), random_state=cfg.seed)
-# monte_carlo.py
-from typing import Dict, Iterable, Literal, Mapping, Optional, Tuple
 
 import numpy as np
 import pandas as pd
