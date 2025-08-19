@@ -221,3 +221,4 @@ reports/
 
 my_ozon_analytics/scripts/analytics-app/*.bak*
 *.bak
+my_ozon_analytics/scripts/analytics_app_backup/
