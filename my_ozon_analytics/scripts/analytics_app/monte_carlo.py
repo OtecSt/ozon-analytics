@@ -4,10 +4,60 @@ from typing import Optional, Dict, Iterable, Literal, Mapping, Tuple
 
 
 # --- Совместимость с app.py: конфиг и фабрика симулятора ---
+
 @dataclass
 class MCConfig:
     n_sims: int = 20_000
     seed: Optional[int] = None
+
+# --- Совместимость с app.py: допущения Монте‑Карло ---
+@dataclass
+class Assumptions:
+    """
+    Совокупность параметров неопределённости и корреляций.
+    Это тонкая совместимость для app.py, который ожидает mc.Assumptions.
+    """
+    price_cv: float = 0.03
+    production_cost_cv: float = 0.05
+    commission_cv: float = 0.10
+    promo_cv: float = 0.15
+    returns_kappa: float = 400.0
+    corr_matrix_4x4: Optional["np.ndarray"] = None
+
+    def as_kwargs(self) -> Dict[str, object]:
+        """
+        Удобно прокинуть параметры в simulate_from_analytics(..., **kwargs)
+        """
+        return dict(
+            price_cv=self.price_cv,
+            production_cost_cv=self.production_cost_cv,
+            commission_cv=self.commission_cv,
+            promo_cv=self.promo_cv,
+            returns_kappa=self.returns_kappa,
+            corr_matrix_4x4=self.corr_matrix_4x4,
+        )
+
+
+def simulate_with_assumptions(
+    sim: "MonteCarloSimulator",
+    analytics_row: Mapping[str, float],
+    *,
+    qty: float | Iterable[float] = 1.0,
+    assumptions: "Assumptions",
+) -> "MonteCarloResult":
+    """
+    Совместимый адаптер: позволяет вызывать через объект Assumptions.
+    """
+    return sim.simulate_from_analytics(
+        analytics_row=analytics_row,
+        qty=qty,
+        price_cv=assumptions.price_cv,
+        production_cost_cv=assumptions.production_cost_cv,
+        commission_cv=assumptions.commission_cv,
+        promo_cv=assumptions.promo_cv,
+        returns_kappa=assumptions.returns_kappa,
+        corr_matrix_4x4=assumptions.corr_matrix_4x4,
+    )
 
 # ============================
 # Пример CLI (smoke-test)
