@@ -24,15 +24,6 @@ import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 
-
-
-st.set_page_config(
-    page_title="Аналитика и планирование Ozon",
-    page_icon="📦",
-    layout="wide",
-)
-
-
 # Унифицированный рендер Plotly с русской локалью
 def st_plot(fig):
     try:
@@ -429,14 +420,26 @@ except Exception:
         @staticmethod
         def line(df, x, y, title=None, **kwargs):
             fig = px.line(df, x=x, y=y, title=title)
+            if kwargs.get("y_is_currency"):
+                fig.update_traces(hovertemplate="%{y:.0f} ₽")
+            elif kwargs.get("y_is_percent"):
+                fig.update_traces(hovertemplate="%{y:.1f} %")
             return fig
         @staticmethod
         def bar(df, x, y, title=None, **kwargs):
             fig = px.bar(df, x=x, y=y, title=title)
+            if kwargs.get("y_is_currency"):
+                fig.update_traces(hovertemplate="%{y:.0f} ₽")
+            elif kwargs.get("y_is_percent"):
+                fig.update_traces(hovertemplate="%{y:.1f} %")
             return fig
         @staticmethod
         def scatter(df, x, y, color=None, hover_data=None, title=None, **kwargs):
             fig = px.scatter(df, x=x, y=y, color=color, hover_data=hover_data, title=title)
+            if kwargs.get("y_is_currency"):
+                fig.update_traces(hovertemplate="%{y:.0f} ₽")
+            elif kwargs.get("y_is_percent"):
+                fig.update_traces(hovertemplate="%{y:.1f} %")
             return fig
         @staticmethod
         def heatmap_pivot(pivot, title=None):
@@ -472,6 +475,14 @@ except Exception:
 
 
 # ---------- Общие настройки ----------
+
+st.set_page_config(
+    page_title="Аналитика и планирование Ozon",
+    page_icon="📦",
+    layout="wide",
+)
+
+
 # ---------- Кеши и загрузка данных ----------
 
 @st.cache_data(show_spinner=True)
@@ -532,6 +543,16 @@ def _format_pct(x: float) -> str:
     except Exception:
         return str(x)
 
+# --- Badge helper ---
+def _badge(text: str, kind: str = "neutral"):
+    """Небольшой цветной бейдж «светофор» для KPI."""
+    colors = {"good": "#16a34a", "warn": "#f59e0b", "bad": "#dc2626", "neutral": "#64748b"}
+    st.markdown(
+        f'<span style="background:{colors.get(kind,"#64748b")};'
+        f'color:#fff;padding:2px 8px;border-radius:999px;font-size:12px;">{text}</span>',
+        unsafe_allow_html=True,
+    )
+
 # === Executive helpers: Waterfall (gross → net → margin) ===
 from typing import Mapping, Optional
 
@@ -566,6 +587,7 @@ def build_waterfall(analytics_like: Mapping[str, float]) -> "go.Figure":
         text=[_format_money(v) for v in y],
         connector={"line": {"width": 1}}
     ))
+    fig.update_traces(hovertemplate="%{y:.0f} ₽")
     fig.update_layout(title="Денежный водопад", showlegend=False, template="plotly_white", margin=dict(l=8, r=8, t=48, b=8))
     return fig
 # === end executive helpers ===
@@ -637,12 +659,41 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("## 📅 Фильтры")
     granularity = st.radio("Гранулярность", ["День","Неделя","Месяц"], index=0, horizontal=True)
-    date_from = st.date_input("С даты", value=pd.to_datetime("2025-01-01"))
-    date_to   = st.date_input("По дату", value=pd.to_datetime("today"))
+    date_from = st.date_input("С даты", value=pd.to_datetime("2025-01-01"), key="date_from")
+    date_to   = st.date_input("По дату", value=pd.to_datetime("today"), key="date_to")
     cogs_mode = st.selectbox("COGS режим", ["NET", "GROSS"], index=(0 if COGS_MODE == "NET" else 1))
     # динамический список SKU
     _sku_list = sorted(analytics["sku"].astype(str).unique().tolist())
     selected_sku = st.multiselect("SKU", _sku_list[:50], max_selections=50)
+
+# --- Presets для периода ---
+from datetime import date, timedelta
+def _q_start(d: pd.Timestamp) -> pd.Timestamp:
+    m = ((d.month-1)//3)*3 + 1
+    return pd.Timestamp(year=d.year, month=m, day=1)
+
+c1, c2, c3, c4 = st.columns(4)
+with c1:
+    if st.button("MTD"):
+        st.session_state["date_from"] = pd.Timestamp(date.today().replace(day=1))
+        st.session_state["date_to"] = pd.Timestamp(date.today())
+        st.experimental_rerun()
+with c2:
+    if st.button("Last 7d"):
+        st.session_state["date_from"] = pd.Timestamp(date.today() - timedelta(days=6))
+        st.session_state["date_to"] = pd.Timestamp(date.today())
+        st.experimental_rerun()
+with c3:
+    if st.button("Last 30d"):
+        st.session_state["date_from"] = pd.Timestamp(date.today() - timedelta(days=29))
+        st.session_state["date_to"] = pd.Timestamp(date.today())
+        st.experimental_rerun()
+with c4:
+    if st.button("Квартал"):
+        _today = pd.Timestamp(date.today())
+        st.session_state["date_from"] = _q_start(_today)
+        st.session_state["date_to"] = _today
+        st.experimental_rerun()
 
 # --- Apply filters ---
 _daily = fact_daily.copy()
@@ -701,6 +752,14 @@ def page_overview():
             {"title": "Маржа (ИТОГО)", "value": _format_money(fin["margin"])},
             {"title": "Маржа, %", "value": _format_pct(fin["margin_pct"])},
         ])
+        # Бейдж «светофор» для маржи, %
+        try:
+            _kind_m = "good" if float(fin["margin_pct"]) > 15 else ("warn" if float(fin["margin_pct"]) >= 5 else "bad")
+            _cols_badge_m = st.columns(4)
+            with _cols_badge_m[3]:
+                _badge(f"{float(fin['margin_pct']):.1f} %", _kind_m)
+        except Exception:
+            pass
         kpi_row([
             {"title": "AOV", "value": _format_money(fin["aov"])},
             {"title": "ROMI", "value": (f"{fin['romi']:.2f}x" if fin.get("romi") is not None else "н/д")},
@@ -764,6 +823,14 @@ def page_overview():
             {"title": "Возвраты P50 (оценка)", "value": _format_pct(p50_ret) if p50_ret is not None else "н/д"},
             {"title": "Возвраты P95 (оценка)", "value": _format_pct(p95_ret) if p95_ret is not None else "н/д"},
         ])
+        # Бейдж «светофор» для возвратов, % (факт)
+        try:
+            _kind_r = "good" if float(fact_ret_pct) < 5 else ("warn" if float(fact_ret_pct) < 10 else "bad")
+            _cols_badge_r = st.columns(4)
+            with _cols_badge_r[1]:
+                _badge(f"{float(fact_ret_pct):.1f} %", _kind_r)
+        except Exception:
+            pass
         kpi_row([
             {"title": "Prob(GM<0)", "value": (_format_pct(100*prob_neg_gm) if prob_neg_gm is not None else "н/д")},
             {"title": "Промо, %", "value": _format_pct((_promo_rub / _rev * 100) if _rev else 0)},
@@ -860,6 +927,7 @@ def page_overview():
             fig_fc.add_trace(go.Scatter(x=pd.concat([fc["week"], fc["week"][::-1]]),
                                         y=pd.concat([fc["p90"], fc["p10"][::-1]]),
                                         fill='toself', line=dict(width=0), name="p10–p90", hoverinfo="skip"))
+            fig_fc.update_traces(hovertemplate="%{y:.0f} ₽")
             fig_fc.update_layout(template="plotly_white", margin=dict(l=8, r=8, t=48, b=8), title="Прогноз Net: p50 и веер p10–p90 (недели)")
             st_plot(fig_fc)
     else:
@@ -1178,6 +1246,7 @@ def page_assortment():
         path_cols = [cat_col, "sku"] if cat_col else ["sku"]
         fig_tm = px.treemap(df_tm, path=path_cols, values="total_rev", color=("margin" if "margin" in df_tm.columns else None),
                             color_continuous_scale="RdYlGn", title="Treemap: вклад в выручку")
+        fig_tm.update_traces(hovertemplate="%{value:.0f} ₽")
         fig_tm.update_layout(margin=dict(l=8, r=8, t=48, b=8), template="plotly_white")
         st_plot(fig_tm)
         render_caption(
@@ -1199,6 +1268,11 @@ def page_assortment():
         fig_p = go.Figure()
         fig_p.add_bar(x=d["sku"], y=d["total_rev"], name="Выручка")
         fig_p.add_trace(go.Scatter(x=d["sku"], y=d["cum_pct"], yaxis="y2", mode="lines+markers", name="Накопительный %"))
+        try:
+            fig_p.data[0].update(hovertemplate="%{y:.0f} ₽")   # bar: revenue
+            fig_p.data[1].update(hovertemplate="%{y:.1f} %")   # line: cumulative %
+        except Exception:
+            pass
         fig_p.update_layout(
             template="plotly_white",
             margin=dict(l=8, r=8, t=48, b=8),
@@ -1287,6 +1361,10 @@ def page_unit_econ():
         "value": [price, -prod, -comm, -promo, margin_u]
     })
     fig_bar = charts.bar(df, x="component", y="value", title="Разложение единичной экономики")
+    try:
+        fig_bar.update_traces(hovertemplate="%{y:.0f} ₽")
+    except Exception:
+        pass
     st_plot(fig_bar)
     render_caption(
         title="Разложение единичной экономики",
