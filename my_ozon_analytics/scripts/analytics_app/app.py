@@ -1,4 +1,10 @@
 import os, sys as _sys_boot
+
+# применяем быстрые пресеты до инициализации виджетов Streamlit
+import streamlit as st
+_pending = st.session_state.pop("date_range_pending", None)
+if _pending:
+    st.session_state["date_from"], st.session_state["date_to"] = _pending
 _APP_DIR_BOOT = os.path.dirname(__file__)
 if _APP_DIR_BOOT not in _sys_boot.path:
     _sys_boot.path.insert(0, _APP_DIR_BOOT)
@@ -48,7 +54,95 @@ def _try_import_mc():
         st.session_state["mc_import_error"] = f"{e}"
         return None
 
+
 mc = _try_import_mc()
+
+# ---- MC adapters (use new MonteCarloSimulator API) ----
+def _mc_unit_margin(analytics_df: pd.DataFrame, sku: str, cfg, assumptions) -> dict:
+    """
+    Адаптер под старый интерфейс mc.simulate_unit_margin(...):
+    Возвращает dict со структурой: {"samples": np.ndarray, "p05": float, "p50": float, "p95": float, "prob_negative": float}
+    """
+    if mc is None or not hasattr(mc, "MonteCarloSimulator"):
+        raise RuntimeError("MonteCarloSimulator не найден в модуле monte_carlo")
+
+    row = analytics_df.loc[analytics_df["sku"].astype(str) == str(sku)]
+    if row.empty:
+        raise ValueError(f"SKU '{sku}' не найден в analytics")
+    r0 = row.iloc[0]
+
+    base_price = float(r0.get("avg_net_price_per_unit", r0.get("avg_price_per_unit", 0.0)))
+    base_prod  = float(r0.get("production_cost_per_unit", 0.0))
+    base_comm  = float(r0.get("commission_per_unit", 0.0))
+    base_promo = float(r0.get("promo_per_unit", 0.0))
+    base_rr    = float(r0.get("returns_pct", 0.0)) / 100.0
+    qty        = [float(r0.get("total_qty", r0.get("shipped_qty", 0.0)) or 0.0)]
+
+    sim = mc.MonteCarloSimulator(n_sims=int(cfg.n_sims), random_state=int(cfg.seed))
+    res = sim.simulate_sku(
+        base_price=base_price,
+        base_production_cost=base_prod,
+        base_commission_per_unit=base_comm,
+        base_promo_per_unit=base_promo,
+        base_returns_rate=base_rr,
+        qty=qty,
+        assumptions=assumptions,
+    )
+    samples = getattr(res, "samples_unit_margin", None)
+    if samples is None:
+        # на всякий случай: если поле называется иначе
+        samples = np.asarray(getattr(res, "unit_margin_samples", []), dtype=float)
+    samples = np.asarray(samples, dtype=float)
+    p05 = float(np.quantile(samples, 0.05)) if samples.size else 0.0
+    p50 = float(np.quantile(samples, 0.50)) if samples.size else 0.0
+    p95 = float(np.quantile(samples, 0.95)) if samples.size else 0.0
+    prob_negative = float((samples < 0).mean()) if samples.size else 0.0
+    return {"samples": samples, "p05": p05, "p50": p50, "p95": p95, "prob_negative": prob_negative}
+
+def _mc_portfolio_margin(analytics_df: pd.DataFrame, qty_map: Dict[str, float], cfg) -> dict:
+    """
+    Адаптер под старый интерфейс mc.simulate_portfolio_margin(...):
+    Складывает выборки total_margin по SKU (поэлементно) и возвращает dict со сэмплами и квантилями.
+    """
+    if mc is None or not hasattr(mc, "MonteCarloSimulator"):
+        raise RuntimeError("MonteCarloSimulator не найден в модуле monte_carlo")
+    n_sims = int(cfg.n_sims)
+    rng_seed = int(cfg.seed)
+    total_samples = None
+
+    for i, (sku, qty) in enumerate(qty_map.items()):
+        row = analytics_df.loc[analytics_df["sku"].astype(str) == str(sku)]
+        if row.empty:
+            continue
+        r0 = row.iloc[0]
+        base_price = float(r0.get("avg_net_price_per_unit", r0.get("avg_price_per_unit", 0.0)))
+        base_prod  = float(r0.get("production_cost_per_unit", 0.0))
+        base_comm  = float(r0.get("commission_per_unit", 0.0))
+        base_promo = float(r0.get("promo_per_unit", 0.0))
+        base_rr    = float(r0.get("returns_pct", 0.0)) / 100.0
+
+        sim = mc.MonteCarloSimulator(n_sims=n_sims, random_state=rng_seed + i)
+        res = sim.simulate_sku(
+            base_price=base_price,
+            base_production_cost=base_prod,
+            base_commission_per_unit=base_comm,
+            base_promo_per_unit=base_promo,
+            base_returns_rate=base_rr,
+            qty=[float(qty)],
+        )
+        samples = np.asarray(getattr(res, "samples_total_margin", []), dtype=float)
+        if samples.size == 0:
+            # fallback: перемножить unit_margin_samples * qty
+            um = np.asarray(getattr(res, "samples_unit_margin", []), dtype=float)
+            samples = um * float(qty) if um.size else np.zeros(n_sims, dtype=float)
+        total_samples = samples if total_samples is None else (total_samples + samples)
+
+    if total_samples is None:
+        total_samples = np.zeros(n_sims, dtype=float)
+    p05 = float(np.quantile(total_samples, 0.05))
+    mean = float(np.mean(total_samples))
+    p95 = float(np.quantile(total_samples, 0.95))
+    return {"samples": total_samples, "p05": p05, "mean": mean, "p95": p95}
 
 # ---- Unified config access (secrets/env) ----
 def _cfg(key: str, default=None):
@@ -553,6 +647,38 @@ def _badge(text: str, kind: str = "neutral"):
         unsafe_allow_html=True,
     )
 
+
+# --- Apply period preset safely BEFORE date widgets are created ---
+def _apply_period_preset():
+    """Если в session_state установлен пресет периода, применяем его и очищаем ключ.
+    Это нужно вызывать ДО рендера виджетов date_input с ключами `date_from`/`date_to`.
+    """
+    key = st.session_state.get("_period_preset")
+    if not key:
+        return
+    from datetime import date, timedelta
+
+    def _q_start(d: pd.Timestamp) -> pd.Timestamp:
+        m = ((d.month - 1) // 3) * 3 + 1
+        return pd.Timestamp(year=d.year, month=m, day=1)
+
+    today = pd.Timestamp(date.today())
+    if key == "MTD":
+        st.session_state["date_from"] = pd.Timestamp(date.today().replace(day=1))
+        st.session_state["date_to"] = today
+    elif key == "7D":
+        st.session_state["date_from"] = today - pd.Timedelta(days=6)
+        st.session_state["date_to"] = today
+    elif key == "30D":
+        st.session_state["date_from"] = today - pd.Timedelta(days=29)
+        st.session_state["date_to"] = today
+    elif key == "QTR":
+        st.session_state["date_from"] = _q_start(today)
+        st.session_state["date_to"] = today
+
+    # сбрасываем флажок, чтобы не триггерилось повторно
+    st.session_state["_period_preset"] = None
+
 # === Executive helpers: Waterfall (gross → net → margin) ===
 from typing import Mapping, Optional
 
@@ -655,6 +781,7 @@ returns_qty_sum = float(analytics.get("returns_qty", pd.Series(dtype=float)).sum
 promo_sum = float(analytics.get("promo_cost", pd.Series(dtype=float)).sum())
 
 # --- Sidebar filters (depend on loaded data) ---
+_apply_period_preset()
 with st.sidebar:
     st.markdown("---")
     st.markdown("## 📅 Фильтры")
@@ -667,32 +794,27 @@ with st.sidebar:
     selected_sku = st.multiselect("SKU", _sku_list[:50], max_selections=50)
 
 # --- Presets для периода ---
-from datetime import date, timedelta
-def _q_start(d: pd.Timestamp) -> pd.Timestamp:
-    m = ((d.month-1)//3)*3 + 1
-    return pd.Timestamp(year=d.year, month=m, day=1)
-
 c1, c2, c3, c4 = st.columns(4)
 with c1:
-    if st.button("MTD"):
-        st.session_state["date_from"] = pd.Timestamp(date.today().replace(day=1))
-        st.session_state["date_to"] = pd.Timestamp(date.today())
+    if st.button("MTD", key="preset_mtd"):
+        st.session_state["_period_preset"] = "MTD"
         st.experimental_rerun()
 with c2:
-    if st.button("Last 7d"):
-        st.session_state["date_from"] = pd.Timestamp(date.today() - timedelta(days=6))
-        st.session_state["date_to"] = pd.Timestamp(date.today())
-        st.experimental_rerun()
+    if st.button("Last 7d", key="preset_7d"):
+        from datetime import date, timedelta
+        import pandas as pd
+        st.session_state["date_range_pending"] = (
+            pd.Timestamp(date.today() - timedelta(days=6)),
+            pd.Timestamp(date.today()),
+        )
+        st.rerun()
 with c3:
-    if st.button("Last 30d"):
-        st.session_state["date_from"] = pd.Timestamp(date.today() - timedelta(days=29))
-        st.session_state["date_to"] = pd.Timestamp(date.today())
+    if st.button("Last 30d", key="preset_30d"):
+        st.session_state["_period_preset"] = "30D"
         st.experimental_rerun()
 with c4:
-    if st.button("Квартал"):
-        _today = pd.Timestamp(date.today())
-        st.session_state["date_from"] = _q_start(_today)
-        st.session_state["date_to"] = _today
+    if st.button("Квартал", key="preset_qtr"):
+        st.session_state["_period_preset"] = "QTR"
         st.experimental_rerun()
 
 # --- Apply filters ---
@@ -778,19 +900,14 @@ def page_overview():
         _promo_rub = float(_daily.get("promo_rub", pd.Series(dtype=float)).sum()) if not _daily.empty else float(promo_sum)
         # Фактическая доля возвратов
         fact_ret_pct = (_returns_rub / _rev * 100) if _rev else 0
-        # Оценка возвратов P50/P95 (если есть MC/оценка, иначе None)
-        p50_ret, p95_ret = None, None
+        # Оценка возвратов P50/P95 (процентильная оценка по выборке)
         try:
-            if mc is not None and hasattr(mc, "MonteCarloSimulator"):
-                # Пробуем взять портфельную оценку возвратов
-                sim = mc.MonteCarloSimulator(n_sims=10000, random_state=42)
-                # Базовые возвраты по всей выборке (можно уточнить)
-                _base_rr = float(analytics.get("returns_pct", pd.Series(dtype=float)).mean()) / 100.0
-                _qty = float(analytics.get("total_qty", pd.Series(dtype=float)).sum())
-                if _qty > 0:
-                    res = sim.simulate_returns(_base_rr, qty=int(_qty))
-                    p50_ret = float(res.p50)
-                    p95_ret = float(res.p95)
+            ser = pd.to_numeric(analytics.get("returns_pct", pd.Series(dtype=float)), errors="coerce").dropna()
+            if len(ser) >= 5:
+                p50_ret = float(np.percentile(ser, 50))
+                p95_ret = float(np.percentile(ser, 95))
+            else:
+                p50_ret, p95_ret = None, None
         except Exception:
             p50_ret, p95_ret = None, None
         # Prob(GM<0) по дневной серии маржи (нормальное приближение)
@@ -1496,7 +1613,7 @@ def page_what_if():
         sku = st.selectbox("SKU", options=sku_list, index=0, key="mc_sku")
         if st.button("▶︎ Запустить симуляцию по SKU"):
             try:
-                res = mc.simulate_unit_margin(analytics, sku, cfg=cfg, assumptions=ass)
+                res = _mc_unit_margin(analytics, sku, cfg=cfg, assumptions=ass)
                 samples = res["samples"]
                 q05, q50, q95 = res["p05"], res["p50"], res["p95"]
                 prob_neg = res["prob_negative"]
@@ -1564,7 +1681,7 @@ def page_what_if():
 
         if st.button("▶︎ Запустить симуляцию портфеля"):
             try:
-                res_p = mc.simulate_portfolio_margin(analytics, qty_map, cfg=cfg)
+                res_p = _mc_portfolio_margin(analytics, qty_map, cfg=cfg)
                 samples = res_p["samples"]
                 kpi_row([
                     {"title": "P05 (портфель)", "value": _format_money(float(np.quantile(samples, 0.05)))},
@@ -1705,7 +1822,7 @@ def page_risk():
     sku = st.selectbox("SKU", options=sku_list, index=0, key="mc_sku_standalone")
     if st.button("▶︎ Запустить симуляцию по SKU", key="mc_run_sku"):
         try:
-            res = mc.simulate_unit_margin(analytics, sku, cfg=cfg, assumptions=ass)
+            res = _mc_unit_margin(analytics, sku, cfg=cfg, assumptions=ass)
             samples = res["samples"]
             q05, q50, q95 = res["p05"], res["p50"], res["p95"]
             prob_neg = res["prob_negative"]
@@ -1770,7 +1887,7 @@ def page_risk():
 
     if st.button("▶︎ Запустить симуляцию портфеля", key="mc_run_portfolio"):
         try:
-            res_p = mc.simulate_portfolio_margin(analytics, qty_map, cfg=cfg)
+            res_p = _mc_portfolio_margin(analytics, qty_map, cfg=cfg)
             samples = res_p["samples"]
             kpi_row([
                 {"title": "P05 (портфель)", "value": _format_money(float(np.quantile(samples, 0.05)))},

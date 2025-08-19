@@ -44,6 +44,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 import pandas as pd
+import io
 
 
 # ========== Утилиты дат ==========
@@ -469,24 +470,92 @@ def build_report(fact_daily: pd.DataFrame, start: date, end: date, top_n: int = 
 def save_excel(report: dict, out_path: Path) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with pd.ExcelWriter(out_path, engine="xlsxwriter") as xw:
+        # Write sheets
         report["summary"].to_excel(xw, sheet_name="Summary", index=False)
         report["wow"].to_excel(xw, sheet_name="WoW", index=False)
         report["by_sku"].to_excel(xw, sheet_name="By_SKU", index=False)
         report["by_day"].to_excel(xw, sheet_name="By_Day", index=False)
         report["top_by_revenue"].to_excel(xw, sheet_name="Top_Revenue", index=False)
         report["top_by_shipped"].to_excel(xw, sheet_name="Top_Shipped", index=False)
-        # apply basic formats
+
         wb = xw.book
         fmt_int = wb.add_format({"num_format": "#,##0"})
         fmt_money = wb.add_format({"num_format": "#,##0"})
-        for sheet in ("By_SKU", "By_Day", "Top_Revenue", "Top_Shipped"):
-            ws = xw.sheets[sheet]
-            # попытка найти типичные столбцы и применить формат
-            for col_idx, col_name in enumerate(ws.get_default_row_height() or []):
-                pass  # безопасная заглушка, реального API для имён колонок тут нет
+        fmt_pct = wb.add_format({"num_format": "0.0%"})
+        fmt_date = wb.add_format({"num_format": "yyyy-mm-dd"})
+
+        # Helper to apply format by column names
+        def _fmt_sheet(sheet_name: str, df: pd.DataFrame, int_cols=(), money_cols=(), pct_cols=(), date_cols=()):
+            ws = xw.sheets.get(sheet_name)
+            if ws is None or df is None or df.empty:
+                return
+            # set a reasonable default width
+            ws.set_column(0, len(df.columns) - 1, 14)
+            for col in int_cols:
+                if col in df.columns:
+                    idx = df.columns.get_loc(col)
+                    ws.set_column(idx, idx, 14, fmt_int)
+            for col in money_cols:
+                if col in df.columns:
+                    idx = df.columns.get_loc(col)
+                    ws.set_column(idx, idx, 14, fmt_money)
+            for col in pct_cols:
+                if col in df.columns:
+                    idx = df.columns.get_loc(col)
+                    ws.set_column(idx, idx, 12, fmt_pct)
+            for col in date_cols:
+                if col in df.columns:
+                    idx = df.columns.get_loc(col)
+                    ws.set_column(idx, idx, 12, fmt_date)
+
+        _fmt_sheet(
+            "By_SKU",
+            report["by_sku"],
+            int_cols=("shipped_qty", "returns_qty", "shipments"),
+            money_cols=("order_value_rub", "promo_rub", "aov_rub"),
+            pct_cols=("return_rate_%", "promo_intensity_%"),
+        )
+        _fmt_sheet(
+            "By_Day",
+            report["by_day"],
+            int_cols=("shipped_qty", "returns_qty"),
+            money_cols=("order_value_rub", "promo_rub"),
+            pct_cols=("return_rate_%",),
+            date_cols=("date",),
+        )
+        _fmt_sheet(
+            "Top_Revenue",
+            report["top_by_revenue"],
+            int_cols=("shipped_qty", "returns_qty", "shipments"),
+            money_cols=("order_value_rub", "promo_rub", "aov_rub"),
+            pct_cols=("return_rate_%", "promo_intensity_%"),
+        )
+        _fmt_sheet(
+            "Top_Shipped",
+            report["top_by_shipped"],
+            int_cols=("shipped_qty", "returns_qty", "shipments"),
+            money_cols=("order_value_rub", "promo_rub", "aov_rub"),
+            pct_cols=("return_rate_%", "promo_intensity_%"),
+        )
 
 
-def save_markdown(report: dict, out_path: Path) -> None:
+# Helper: Excel as bytes for Streamlit
+def build_weekly_excel_bytes(report: dict) -> bytes:
+    """Собирает weekly-отчёт в XLSX и возвращает как bytes (для Streamlit download_button)."""
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="xlsxwriter") as xw:
+        report["summary"].to_excel(xw, sheet_name="Summary", index=False)
+        report["wow"].to_excel(xw, sheet_name="WoW", index=False)
+        report["by_sku"].to_excel(xw, sheet_name="By_SKU", index=False)
+        report["by_day"].to_excel(xw, sheet_name="By_Day", index=False)
+        report["top_by_revenue"].to_excel(xw, sheet_name="Top_Revenue", index=False)
+        report["top_by_shipped"].to_excel(xw, sheet_name="Top_Shipped", index=False)
+    buf.seek(0)
+    return buf.getvalue()
+
+
+
+def build_markdown_string(report: dict) -> str:
     start, end = report["period"]
     md = []
     md.append(f"# Еженедельный отчёт · {start} — {end}\n")
@@ -504,7 +573,7 @@ def save_markdown(report: dict, out_path: Path) -> None:
     t1["order_value_rub"] = t1["order_value_rub"].map(lambda v: _fmt_money(float(v)).replace(" ₽",""))
     t1["promo_rub"] = t1["promo_rub"].map(lambda v: _fmt_money(float(v)).replace(" ₽",""))
     t1["aov_rub"] = t1["aov_rub"].map(lambda v: _fmt_money(float(v)).replace(" ₽",""))
-    md.append(_safe_to_markdown(t1.head(50)))  # чтобы не распухало
+    md.append(_safe_to_markdown(t1.head(50)))
     md.append("\n")
 
     md.append("## Топ SKU по отгрузкам\n")
@@ -522,8 +591,11 @@ def save_markdown(report: dict, out_path: Path) -> None:
     md.append(_safe_to_markdown(d))
     md.append("\n")
 
+    return "\n".join(md)
+
+def save_markdown(report: dict, out_path: Path) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text("\n".join(md), encoding="utf-8")
+    out_path.write_text(build_markdown_string(report), encoding="utf-8")
 
 
 # ========== CLI ==========
