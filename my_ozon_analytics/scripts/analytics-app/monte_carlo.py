@@ -1,8 +1,7 @@
+from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Dict, Iterable, Literal, Mapping, Tuple
 
-import numpy as np
-import pandas as pd
 
 # --- Совместимость с app.py: конфиг и фабрика симулятора ---
 @dataclass
@@ -178,12 +177,16 @@ class MonteCarloResult:
     total_margin_samples: np.ndarray
     unit_margin_summary: MonteCarloSummary
     total_margin_summary: MonteCarloSummary
+    returns_summary: Optional[MonteCarloSummary] = None
 
     def to_dict(self) -> Dict[str, Dict[str, float]]:
-        return {
+        out = {
             "unit_margin": self.unit_margin_summary.__dict__,
             "total_margin": self.total_margin_summary.__dict__,
         }
+        if self.returns_summary is not None:
+            out["returns_summary"] = self.returns_summary.__dict__
+        return out
 
 
 # ============================
@@ -270,9 +273,16 @@ class MonteCarloSimulator:
         promo_spec = promo_spec or DeterministicSpec(base_promo_per_unit)
         returns_spec = returns_spec or BetaSpec(mean=float(base_returns_rate), kappa=1e6)  # практически точная доля
 
+        # нормализуем корреляционную матрицу (если передана неверная форма — отключаем корреляции)
+        C = None
+        if corr_matrix_4x4 is not None:
+            C_try = np.asarray(corr_matrix_4x4, dtype=float)
+            if C_try.shape == (4, 4):
+                C = C_try
+
         # --- выборки по {price, pc, commission, promo} с корреляцией (если задана) ---
         # Сценарий А: без корреляции — просто сэмплим по каждому спеку
-        if corr_matrix_4x4 is None:
+        if C is None:
             price_draw = price_spec.sample(n, self.rng)
             pc_draw = pc_spec.sample(n, self.rng)
             comm_draw = comm_spec.sample(n, self.rng)
@@ -283,7 +293,7 @@ class MonteCarloSimulator:
             #  * LogNormalSpec — exp(mu + sigma * z)
             #  * Triangular/Deterministic — без корреляции (подмешиваем отдельно)
             # Реалистично — чаще price/pc/commission/promo задаются нормалями/логнормалями.
-            Z = self._correlated_normals(np.asarray(corr_matrix_4x4, dtype=float))
+            Z = self._correlated_normals(C)
             cols = []
             for idx, spec in enumerate([price_spec, pc_spec, comm_spec, promo_spec]):
                 z = Z[:, idx]
@@ -305,11 +315,6 @@ class MonteCarloSimulator:
                 cols.append(x)
             price_draw, pc_draw, comm_draw, promo_draw = cols
 
-        # --- возвраты (бета/детермин.) ---
-        if isinstance(returns_spec, BetaSpec):
-            rr = _clip01(returns_spec.sample01(n, self.rng))
-        else:
-            rr = _clip01(returns_spec.sample(n, self.rng))
 
         # --- unit margin выборка ---
         unit_margin = price_draw - pc_draw - comm_draw - promo_draw
@@ -317,12 +322,15 @@ class MonteCarloSimulator:
         # --- итоговая маржа: суммируем по периодам qty_t * (1 - rr_t) * unit_margin_draw
         # Возвраты моделируем по периодам как независимые (одно и то же rr для всех T — ок для коротких горизонтов,
         # но реалистичнее сэмплить rr_t отдельно). Ниже реализуем независимые rr_t.
-        rr_mat = self.rng.beta(  # если returns_spec Beta — приближённо используй его среднюю дисперсию
-            *(returns_spec._params() if isinstance(returns_spec, BetaSpec) else (1e6, 1.0)),
-            size=(n, T)
-        ) if isinstance(returns_spec, BetaSpec) else np.tile(rr.reshape(-1, 1), (1, T))
+        if isinstance(returns_spec, BetaSpec):
+            rr_mat = _clip01(self.rng.beta(*returns_spec._params(), size=(n, T)))
+        else:
+            rr_vec = _clip01(returns_spec.sample(n, self.rng))
+            rr_mat = np.tile(rr_vec.reshape(-1, 1), (1, T))
 
-        rr_mat = _clip01(rr_mat)
+        # Сводка по возвратам (в процентах)
+        returns_pct_samples = (rr_mat * 100.0).ravel()
+
         qty_row = qty_vec.reshape(1, T).astype(float)
         net_qty_mat = qty_row * (1.0 - rr_mat)  # shape=(n, T)
         total_margin = (net_qty_mat.sum(axis=1)) * unit_margin  # (n,)* (n,) => (n,)
@@ -330,12 +338,14 @@ class MonteCarloSimulator:
         # --- сводки ---
         unit_summary = MonteCarloSummary.from_samples(unit_margin)
         total_summary = MonteCarloSummary.from_samples(total_margin)
+        returns_summary = MonteCarloSummary.from_samples(returns_pct_samples)
 
         return MonteCarloResult(
             unit_margin_samples=unit_margin,
             total_margin_samples=total_margin,
             unit_margin_summary=unit_summary,
             total_margin_summary=total_summary,
+            returns_summary=returns_summary,
         )
 
     # ------ удобные адаптеры под наши данные ------

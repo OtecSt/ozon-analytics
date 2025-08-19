@@ -24,6 +24,15 @@ import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 
+
+
+st.set_page_config(
+    page_title="Аналитика и планирование Ozon",
+    page_icon="📦",
+    layout="wide",
+)
+
+
 # Унифицированный рендер Plotly с русской локалью
 def st_plot(fig):
     try:
@@ -463,14 +472,6 @@ except Exception:
 
 
 # ---------- Общие настройки ----------
-
-st.set_page_config(
-    page_title="Аналитика и планирование Ozon",
-    page_icon="📦",
-    layout="wide",
-)
-
-
 # ---------- Кеши и загрузка данных ----------
 
 @st.cache_data(show_spinner=True)

@@ -219,3 +219,5 @@ logs/
 output/
 reports/
 
+my_ozon_analytics/scripts/analytics-app/*.bak*
+*.bak
