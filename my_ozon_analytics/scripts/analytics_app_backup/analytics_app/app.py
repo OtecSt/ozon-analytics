@@ -570,18 +570,11 @@ except Exception:
 
 # ---------- Общие настройки ----------
 
-
 st.set_page_config(
     page_title="Аналитика и планирование Ozon",
     page_icon="📦",
     layout="wide",
 )
-
-st.markdown("""
-<style>
-.block-container{max-width:1440px;padding-left:1.2rem;padding-right:1.2rem}
-</style>
-""", unsafe_allow_html=True)
 
 
 # ---------- Кеши и загрузка данных ----------
@@ -861,168 +854,170 @@ else:
 
 def page_overview():
     st.markdown("### 📊 Обзор")
-    # --- KPI (в 4 колонки в ряд) ---
-    # KPI на основе фильтрованных данных, с fallback на analytics
-    if not _daily.empty and {"order_value_rub_sum"}.issubset(_daily.columns):
-        _rev = float(_daily["order_value_rub_sum"].sum())
-    else:
-        _rev = rev_sum
-    _net = net_rev_sum  # при отсутствии нетто в daily оставляем из analytics
-    _margin = margin_sum
-    # Новые KPI-блоки (финансы)
-    ana = analytics
-    daily_f = _daily
-    fin = _kpis_finance_blocks(ana, daily_f)
-    kpi_row([
-        {"title": "Валовая выручка", "value": _format_money(fin["gross"])},
-        {"title": "Чистая выручка",  "value": _format_money(fin["net"])},
-        {"title": "Маржа (ИТОГО)",   "value": _format_money(fin["margin"])},
-        {"title": "Маржа, %",        "value": _format_pct(fin["margin_pct"])},
-    ])
-    # Бейдж «светофор» для маржи, %
-    try:
-        _kind_m = "good" if float(fin["margin_pct"]) > 15 else ("warn" if float(fin["margin_pct"]) >= 5 else "bad")
-        _cols_badge_m = st.columns(4)
-        with _cols_badge_m[3]:
-            _badge(f"{float(fin['margin_pct']):.1f} %", _kind_m)
-    except Exception:
-        pass
-    kpi_row([
-        {"title": "AOV", "value": _format_money(fin["aov"])},
-        {"title": "ROMI", "value": (f"{fin['romi']:.2f}x" if fin.get("romi") is not None else "н/д")},
-        {"title": "ROI", "value": (f"{fin['roi']:.2f}x" if fin.get("roi") is not None else "н/д")},
-        {"title": "SKU в риске", "value": f"{int(((ana.get('returns_pct', pd.Series(dtype=float)) > RETURNS_ALERT_PCT).sum() if 'returns_pct' in ana.columns else 0) + ((ana.get('margin', pd.Series(dtype=float)) < 0).sum() if 'margin' in ana.columns else 0))}"},
-    ])
+    col1, col2 = st.columns([2, 3])
 
-    # --- KPI (риски) ---
-    # Возвраты ₽: приоритет готовой суммы; иначе оценка avg_net_price_per_unit * returns_qty
-    if "returns_rub" in analytics.columns:
-        _returns_rub = float(analytics["returns_rub"].sum())
-    elif {"avg_net_price_per_unit", "returns_qty"}.issubset(analytics.columns):
-        _returns_rub = float((analytics["avg_net_price_per_unit"] * analytics["returns_qty"]).sum())
-    else:
-        _returns_rub = 0.0
-    _promo_rub = float(_daily.get("promo_rub", pd.Series(dtype=float)).sum()) if not _daily.empty else float(promo_sum)
-    # Фактическая доля возвратов
-    fact_ret_pct = (_returns_rub / _rev * 100) if _rev else 0
-    # Оценка возвратов P50/P95 (процентильная оценка по выборке)
-    try:
-        ser = pd.to_numeric(analytics.get("returns_pct", pd.Series(dtype=float)), errors="coerce").dropna()
-        if len(ser) >= 5:
-            p50_ret = float(np.percentile(ser, 50))
-            p95_ret = float(np.percentile(ser, 95))
+    with col1:
+        # KPI на основе фильтрованных данных, с fallback на analytics
+        if not _daily.empty and {"order_value_rub_sum"}.issubset(_daily.columns):
+            _rev = float(_daily["order_value_rub_sum"].sum())
         else:
+            _rev = rev_sum
+        _net = net_rev_sum  # при отсутствии нетто в daily оставляем из analytics
+        _margin = margin_sum
+        # Новые KPI-блоки (финансы)
+        ana = analytics
+        daily_f = _daily
+        fin = _kpis_finance_blocks(ana, daily_f)
+        kpi_row([
+            {"title": "Валовая выручка", "value": _format_money(fin["gross"])},
+            {"title": "Чистая выручка", "value": _format_money(fin["net"])},
+            {"title": "Маржа (ИТОГО)", "value": _format_money(fin["margin"])},
+            {"title": "Маржа, %", "value": _format_pct(fin["margin_pct"])},
+        ])
+        # Бейдж «светофор» для маржи, %
+        try:
+            _kind_m = "good" if float(fin["margin_pct"]) > 15 else ("warn" if float(fin["margin_pct"]) >= 5 else "bad")
+            _cols_badge_m = st.columns(4)
+            with _cols_badge_m[3]:
+                _badge(f"{float(fin['margin_pct']):.1f} %", _kind_m)
+        except Exception:
+            pass
+        kpi_row([
+            {"title": "AOV", "value": _format_money(fin["aov"])},
+            {"title": "ROMI", "value": (f"{fin['romi']:.2f}x" if fin.get("romi") is not None else "н/д")},
+            {"title": "ROI", "value": (f"{fin['roi']:.2f}x" if fin.get("roi") is not None else "н/д")},
+            {"title": "SKU в риске", "value": f"{int(((ana.get('returns_pct', pd.Series(dtype=float)) > RETURNS_ALERT_PCT).sum() if 'returns_pct' in ana.columns else 0) + ((ana.get('margin', pd.Series(dtype=float)) < 0).sum() if 'margin' in ana.columns else 0))}"},
+        ])
+
+        # --- KPI (риски) ---
+        # Возвраты ₽: приоритет готовой суммы; иначе оценка avg_net_price_per_unit * returns_qty
+        if "returns_rub" in analytics.columns:
+            _returns_rub = float(analytics["returns_rub"].sum())
+        elif {"avg_net_price_per_unit", "returns_qty"}.issubset(analytics.columns):
+            _returns_rub = float((analytics["avg_net_price_per_unit"] * analytics["returns_qty"]).sum())
+        else:
+            _returns_rub = 0.0
+        _promo_rub = float(_daily.get("promo_rub", pd.Series(dtype=float)).sum()) if not _daily.empty else float(promo_sum)
+        # Фактическая доля возвратов
+        fact_ret_pct = (_returns_rub / _rev * 100) if _rev else 0
+        # Оценка возвратов P50/P95 (процентильная оценка по выборке)
+        try:
+            ser = pd.to_numeric(analytics.get("returns_pct", pd.Series(dtype=float)), errors="coerce").dropna()
+            if len(ser) >= 5:
+                p50_ret = float(np.percentile(ser, 50))
+                p95_ret = float(np.percentile(ser, 95))
+            else:
+                p50_ret, p95_ret = None, None
+        except Exception:
             p50_ret, p95_ret = None, None
-    except Exception:
-        p50_ret, p95_ret = None, None
-    # Prob(GM<0) по дневной серии маржи (нормальное приближение)
-    prob_neg_gm = None
-    try:
-        dm = daily_f.copy()
-        if not dm.empty:
-            # маржа по дням: net - cogs - commission
-            rev_d = pd.to_numeric(dm.get("order_value_rub_sum", 0), errors="coerce").fillna(0)
-            ret_d = pd.to_numeric(dm.get("returns_rub", 0), errors="coerce").fillna(0)
-            promo_d = pd.to_numeric(dm.get("promo_rub", 0), errors="coerce").fillna(0)
-            net_d = rev_d - ret_d - promo_d
-            cogs_d = pd.to_numeric(dm.get("cogs", 0), errors="coerce").fillna(0) if "cogs" in dm.columns else 0
-            comm_d = pd.to_numeric(dm.get("commission", 0), errors="coerce").fillna(0) if "commission" in dm.columns else 0
-            margin_d = (net_d - cogs_d - comm_d).astype(float)
-            if (margin_d > 0).any() or (margin_d < 0).any():
-                mu = float(margin_d.mean()); sd = float(margin_d.std(ddof=0))
-                if not np.isfinite(sd) or sd == 0:
-                    prob_neg_gm = 0.0 if mu >= 0 else 1.0
-                else:
-                    # P(X<0) для N(mu, sd)
-                    from math import erf, sqrt
-                    z = (0 - mu) / sd
-                    prob_neg_gm = 0.5 * (1 + erf(z / sqrt(2)))
-    except Exception:
+        # Prob(GM<0) по дневной серии маржи (нормальное приближение)
         prob_neg_gm = None
-    kpi_row([
-        {"title": "Возвраты, ₽", "value": _format_money(_returns_rub)},
-        {"title": "Возвраты, % (факт)", "value": _format_pct(fact_ret_pct)},
-        {"title": "Возвраты P50 (оценка)", "value": _format_pct(p50_ret) if p50_ret is not None else "н/д"},
-        {"title": "Возвраты P95 (оценка)", "value": _format_pct(p95_ret) if p95_ret is not None else "н/д"},
-    ])
-    # Бейдж «светофор» для возвратов, % (факт)
-    try:
-        _kind_r = "good" if float(fact_ret_pct) < 5 else ("warn" if float(fact_ret_pct) < 10 else "bad")
-        _cols_badge_r = st.columns(4)
-        with _cols_badge_r[1]:
-            _badge(f"{float(fact_ret_pct):.1f} %", _kind_r)
-    except Exception:
-        pass
-    kpi_row([
-        {"title": "Prob(GM<0)", "value": (_format_pct(100*prob_neg_gm) if prob_neg_gm is not None else "н/д")},
-        {"title": "Промо, %", "value": _format_pct((_promo_rub / _rev * 100) if _rev else 0)},
-        {"title": "—", "value": " "},
-        {"title": "—", "value": " "},
-    ])
+        try:
+            dm = daily_f.copy()
+            if not dm.empty:
+                # маржа по дням: net - cogs - commission
+                rev_d = pd.to_numeric(dm.get("order_value_rub_sum", 0), errors="coerce").fillna(0)
+                ret_d = pd.to_numeric(dm.get("returns_rub", 0), errors="coerce").fillna(0)
+                promo_d = pd.to_numeric(dm.get("promo_rub", 0), errors="coerce").fillna(0)
+                net_d = rev_d - ret_d - promo_d
+                cogs_d = pd.to_numeric(dm.get("cogs", 0), errors="coerce").fillna(0) if "cogs" in dm.columns else 0
+                comm_d = pd.to_numeric(dm.get("commission", 0), errors="coerce").fillna(0) if "commission" in dm.columns else 0
+                margin_d = (net_d - cogs_d - comm_d).astype(float)
+                if (margin_d > 0).any() or (margin_d < 0).any():
+                    mu = float(margin_d.mean()); sd = float(margin_d.std(ddof=0))
+                    if not np.isfinite(sd) or sd == 0:
+                        prob_neg_gm = 0.0 if mu >= 0 else 1.0
+                    else:
+                        # P(X<0) для N(mu, sd)
+                        from math import erf, sqrt
+                        z = (0 - mu) / sd
+                        prob_neg_gm = 0.5 * (1 + erf(z / sqrt(2)))
+        except Exception:
+            prob_neg_gm = None
+        kpi_row([
+            {"title": "Возвраты, ₽", "value": _format_money(_returns_rub)},
+            {"title": "Возвраты, % (факт)", "value": _format_pct(fact_ret_pct)},
+            {"title": "Возвраты P50 (оценка)", "value": _format_pct(p50_ret) if p50_ret is not None else "н/д"},
+            {"title": "Возвраты P95 (оценка)", "value": _format_pct(p95_ret) if p95_ret is not None else "н/д"},
+        ])
+        # Бейдж «светофор» для возвратов, % (факт)
+        try:
+            _kind_r = "good" if float(fact_ret_pct) < 5 else ("warn" if float(fact_ret_pct) < 10 else "bad")
+            _cols_badge_r = st.columns(4)
+            with _cols_badge_r[1]:
+                _badge(f"{float(fact_ret_pct):.1f} %", _kind_r)
+        except Exception:
+            pass
+        kpi_row([
+            {"title": "Prob(GM<0)", "value": (_format_pct(100*prob_neg_gm) if prob_neg_gm is not None else "н/д")},
+            {"title": "Промо, %", "value": _format_pct((_promo_rub / _rev * 100) if _rev else 0)},
+            {"title": "—", "value": " "},
+            {"title": "—", "value": " "},
+        ])
 
-    # --- Денежный водопад по портфелю (обзор) ---
-    # Подбор доступных компонент из analytics (суммы за период/фильтр)
-    gross_rev = float(analytics.get("total_rev", pd.Series(dtype=float)).sum())
+        # --- Денежный водопад по портфелю (обзор) ---
+        # Подбор доступных компонент из analytics (суммы за период/фильтр)
+        gross_rev = float(analytics.get("total_rev", pd.Series(dtype=float)).sum())
 
-    # Возвраты ₽ — готовая колонка; иначе оценка avg_net_price_per_unit * returns_qty
-    if "returns_rub" in analytics.columns:
-        returns_rub = float(analytics["returns_rub"].sum())
-    elif {"avg_net_price_per_unit", "returns_qty"}.issubset(analytics.columns):
-        returns_rub = float((analytics["avg_net_price_per_unit"] * analytics["returns_qty"]).sum())
-    else:
-        returns_rub = 0.0
+        # Возвраты ₽ — готовая колонка; иначе оценка avg_net_price_per_unit * returns_qty
+        if "returns_rub" in analytics.columns:
+            returns_rub = float(analytics["returns_rub"].sum())
+        elif {"avg_net_price_per_unit", "returns_qty"}.issubset(analytics.columns):
+            returns_rub = float((analytics["avg_net_price_per_unit"] * analytics["returns_qty"]).sum())
+        else:
+            returns_rub = 0.0
 
-    # Комиссия ₽ — приоритет готовой суммы; иначе комиссия/ед * qty
-    if "commission_total" in analytics.columns:
-        commission_rub = float(analytics["commission_total"].sum())
-    elif {"commission_per_unit", "total_qty"}.issubset(analytics.columns):
-        commission_rub = float((analytics["commission_per_unit"] * analytics["total_qty"]).sum())
-    else:
-        commission_rub = 0.0
+        # Комиссия ₽ — приоритет готовой суммы; иначе комиссия/ед * qty
+        if "commission_total" in analytics.columns:
+            commission_rub = float(analytics["commission_total"].sum())
+        elif {"commission_per_unit", "total_qty"}.issubset(analytics.columns):
+            commission_rub = float((analytics["commission_per_unit"] * analytics["total_qty"]).sum())
+        else:
+            commission_rub = 0.0
 
-    # Промо ₽ — приоритет promo_cost; иначе промо/ед * qty
-    if "promo_cost" in analytics.columns:
-        promo_rub = float(analytics["promo_cost"].sum())
-    elif {"promo_per_unit", "total_qty"}.issubset(analytics.columns):
-        promo_rub = float((analytics["promo_per_unit"] * analytics["total_qty"]).sum())
-    else:
-        promo_rub = 0.0
+        # Промо ₽ — приоритет promo_cost; иначе промо/ед * qty
+        if "promo_cost" in analytics.columns:
+            promo_rub = float(analytics["promo_cost"].sum())
+        elif {"promo_per_unit", "total_qty"}.issubset(analytics.columns):
+            promo_rub = float((analytics["promo_per_unit"] * analytics["total_qty"]).sum())
+        else:
+            promo_rub = 0.0
 
-    # Себестоимость ₽ — приоритет готового COGS; иначе production_cost_per_unit * qty
-    if "cogs" in analytics.columns:
-        cogs_rub = float(analytics["cogs"].sum())
-    elif {"production_cost_per_unit", "total_qty"}.issubset(analytics.columns):
-        cogs_rub = float((analytics["production_cost_per_unit"] * analytics["total_qty"]).sum())
-    else:
-        cogs_rub = 0.0
+        # Себестоимость ₽ — приоритет готового COGS; иначе production_cost_per_unit * qty
+        if "cogs" in analytics.columns:
+            cogs_rub = float(analytics["cogs"].sum())
+        elif {"production_cost_per_unit", "total_qty"}.issubset(analytics.columns):
+            cogs_rub = float((analytics["production_cost_per_unit"] * analytics["total_qty"]).sum())
+        else:
+            cogs_rub = 0.0
 
-    _totals_map = {
-        "total_rev": gross_rev,
-        "returns_rub": returns_rub,
-        "commission_total": commission_rub,
-        "promo_cost": promo_rub,
-        "cogs": cogs_rub,
-    }
-    st_plot(build_waterfall(_totals_map))
+        _totals_map = {
+            "total_rev": gross_rev,
+            "returns_rub": returns_rub,
+            "commission_total": commission_rub,
+            "promo_cost": promo_rub,
+            "cogs": cogs_rub,
+        }
+        st_plot(build_waterfall(_totals_map))
 
-    # --- график ниже на всю ширину ---
-    show_scatter = not analytics.get("total_rev", pd.Series([])).empty and not analytics.get("margin", pd.Series([])).empty
-    if show_scatter:
-        fig = charts.scatter(
-            analytics.rename(columns={"total_rev": "revenue", "margin": "margin"}),
-            x="revenue", y="margin", color=("ABC_class" if "ABC_class" in analytics.columns else None),
-            hover_data=["sku"], title="Маржа vs Выручка по SKU"
-        )
-        st_plot(fig)
-        render_caption(
-            title="Маржа vs Выручка по SKU (ABC-анализ)",
-            bullets=[
-                "Ось X — выручка по SKU",
-                "Ось Y — маржа по SKU",
-                "Цвет — ABC-класс: A — лидеры оборота, B — средние, C — хвост",
-            ],
-            note="Как читать: точки ниже оси X — убыточные SKU; правее — больший оборот. Приоритет на разбор — левый нижний квадрант.",
-        )
+    with col2:
+        show_scatter = not analytics.get("total_rev", pd.Series([])).empty and not analytics.get("margin", pd.Series([])).empty
+        if show_scatter:
+            fig = charts.scatter(
+                analytics.rename(columns={"total_rev": "revenue", "margin": "margin"}),
+                x="revenue", y="margin", color="ABC_class" if "ABC_class" in analytics.columns else None,
+                hover_data=["sku"], title="Маржа vs Выручка по SKU"
+            )
+            st_plot(fig)
+            render_caption(
+                title="Маржа vs Выручка по SKU (ABC-анализ)",
+                bullets=[
+                    "Ось X — выручка по SKU",
+                    "Ось Y — маржа по SKU",
+                    "Цвет — ABC-класс: A — лидеры оборота, B — средние, C — хвост",
+                ],
+                note="Как читать: точки ниже оси X — убыточные SKU; правее — больший оборот. Приоритет на разбор — левый нижний квадрант.",
+            )
 
     # Линия выручки + SMA (адаптивно: день/неделя/месяц)
     if _has(series_df, ["period", "order_value_rub_sum"]):
