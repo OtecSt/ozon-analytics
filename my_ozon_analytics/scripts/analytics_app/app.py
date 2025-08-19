@@ -55,14 +55,32 @@ def _try_import_mc():
         return None
 
 
+
 mc = _try_import_mc()
+
+# ---- MC shims ----
+from dataclasses import dataclass
+
+@dataclass
+class Assumptions:
+    price_drift_pp: float = 0.0          # +доля к цене (доля, не %)
+    promo_delta_pp: float = 0.0          # +п.п. от цены -> доля
+    commission_delta_pp: float = 0.0     # +п.п. от цены -> доля
+    returns_delta_pp: float = 0.0        # +п.п. к доле возвратов (в П.П., не в долях)
+
+def _apply_assumptions(base_price, base_prod, base_comm, base_promo, base_rr, ass: Assumptions | None):
+    """Скорректировать базовые параметры с учётом допущений."""
+    if ass is None:
+        return base_price, base_prod, base_comm, base_promo, base_rr
+    price = float(base_price) * (1.0 + float(ass.price_drift_pp))
+    comm  = float(base_comm)  + price * float(ass.commission_delta_pp)
+    promo = float(base_promo) + price * float(ass.promo_delta_pp)
+    rr = float(base_rr) + float(ass.returns_delta_pp) / 100.0
+    rr = max(0.0, min(1.0, rr))
+    return price, float(base_prod), comm, promo, rr
 
 # ---- MC adapters (use new MonteCarloSimulator API) ----
 def _mc_unit_margin(analytics_df: pd.DataFrame, sku: str, cfg, assumptions) -> dict:
-    """
-    Адаптер под старый интерфейс mc.simulate_unit_margin(...):
-    Возвращает dict со структурой: {"samples": np.ndarray, "p05": float, "p50": float, "p95": float, "prob_negative": float}
-    """
     if mc is None or not hasattr(mc, "MonteCarloSimulator"):
         raise RuntimeError("MonteCarloSimulator не найден в модуле monte_carlo")
 
@@ -78,19 +96,23 @@ def _mc_unit_margin(analytics_df: pd.DataFrame, sku: str, cfg, assumptions) -> d
     base_rr    = float(r0.get("returns_pct", 0.0)) / 100.0
     qty        = [float(r0.get("total_qty", r0.get("shipped_qty", 0.0)) or 0.0)]
 
+    # применяем допущения (шим)
+    adj_price, adj_prod, adj_comm, adj_promo, adj_rr = _apply_assumptions(
+        base_price, base_prod, base_comm, base_promo, base_rr, assumptions
+    )
+
     sim = mc.MonteCarloSimulator(n_sims=int(cfg.n_sims), random_state=int(cfg.seed))
     res = sim.simulate_sku(
-        base_price=base_price,
-        base_production_cost=base_prod,
-        base_commission_per_unit=base_comm,
-        base_promo_per_unit=base_promo,
-        base_returns_rate=base_rr,
+        base_price=adj_price,
+        base_production_cost=adj_prod,
+        base_commission_per_unit=adj_comm,
+        base_promo_per_unit=adj_promo,
+        base_returns_rate=adj_rr,
         qty=qty,
-        assumptions=assumptions,
     )
+
     samples = getattr(res, "samples_unit_margin", None)
     if samples is None:
-        # на всякий случай: если поле называется иначе
         samples = np.asarray(getattr(res, "unit_margin_samples", []), dtype=float)
     samples = np.asarray(samples, dtype=float)
     p05 = float(np.quantile(samples, 0.05)) if samples.size else 0.0
@@ -1435,30 +1457,63 @@ def page_assortment():
 def page_sku_detail():
     st.markdown("### 🔍 SKU детально")
     sku = st.selectbox("Выберите SKU", options=sku_list)
+
+    # Проверка наличия таблицы analytics
     if "analytics" not in globals():
         st.warning("Таблица analytics не загружена.")
         return
-    row = analytics.loc[analytics["sku"] == sku]
+
+    row = analytics.loc[analytics["sku"].astype(str) == str(sku)]
     if row.empty:
         st.info("Нет строки в analytics для этого SKU.")
         return
 
-    r = row.iloc[0].to_dict()
+    r = row.iloc[0]
 
-    st.write("**Метрики по SKU:**")
-    st.json(r)
+    # --- KPI-блок (основные метрики) ---
+    gross = float(r.get("total_rev", 0.0))
+    net = float(r.get("net_revenue", gross - float(r.get("returns_rub", 0.0)) - float(r.get("promo_cost", 0.0))))
+    cogs = float(r.get("cogs", 0.0))
+    commission_total = float(r.get("commission_total", 0.0))
+    if not commission_total:
+        # оценка по ед. * qty
+        commission_total = float(r.get("commission_per_unit", 0.0)) * float(r.get("total_qty", 0.0))
+    margin = float(r.get("margin", net - cogs - commission_total))
+    margin_pct = (margin / net * 100.0) if net else 0.0
 
-    # Дополнительно: можно встроить графики или расчёты
-    if st.button("Показать график продаж по SKU"):
-        if "orders_df" in globals():
-            st.write("Заказы:", len(orders_df))
-            _df = orders_df[orders_df["sku"] == sku]
-            if not _df.empty:
-                st_plot(charts.line(_df, x="date", y="qty", title=f"Продажи SKU {sku}"))
-            else:
-                st.info("Нет данных о продажах.")
-        else:
-            st.info("orders_df пока не загружен.")
+    kpi_row([
+        {"title": "Валовая выручка", "value": _format_money(gross)},
+        {"title": "Чистая выручка",  "value": _format_money(net)},
+        {"title": "Маржа (ИТОГО)",   "value": _format_money(margin)},
+        {"title": "Маржа, %",        "value": _format_pct(margin_pct)},
+    ])
+
+    # --- Таблица с ключевыми полями по SKU ---
+    cols_pref = [
+        "sku", "total_qty", "avg_net_price_per_unit",
+        "production_cost_per_unit", "commission_per_unit", "promo_per_unit",
+        "returns_qty", "returns_pct", "total_rev", "net_revenue", "margin", "margin_pct"
+    ]
+    cols_present = [c for c in cols_pref if c in analytics.columns]
+    df_one = pd.DataFrame([{c: r.get(c, None) for c in cols_present}])
+    show_table_ru(df_one, title="Метрики по SKU")
+
+    # --- Денежный водопад по SKU ---
+    try:
+        st_plot(build_waterfall(r.to_dict()))
+    except Exception:
+        pass
+
+    # --- Дневной тренд по SKU ---
+    try:
+        if not fact_daily.empty and {"date", "sku"}.issubset(fact_daily.columns):
+            d = fact_daily[fact_daily["sku"].astype(str) == str(sku)].copy()
+            if not d.empty and "order_value_rub_sum" in d.columns:
+                d["date"] = pd.to_datetime(d["date"], errors="coerce")
+                d = d.groupby("date", as_index=False)["order_value_rub_sum"].sum().sort_values("date")
+                st_plot(charts.line(d, x="date", y="order_value_rub_sum", title=f"Выручка по дням · SKU {sku}"))
+    except Exception:
+        pass
 
 
 def page_unit_econ():
@@ -1607,7 +1662,7 @@ def page_what_if():
             returns_delta_pp = st.number_input("Возвраты + п.п.", value=0.0, step=0.2)
 
         cfg = mc.MCConfig(n_sims=int(n_sims), seed=int(seed))
-        ass = mc.Assumptions(
+        ass = Assumptions(
             price_drift_pp=float(price_drift_pp) / 100.0,
             promo_delta_pp=float(promo_delta_pp) / 100.0,
             commission_delta_pp=float(comm_delta_pp) / 100.0,
@@ -1643,12 +1698,15 @@ def page_what_if():
                             _base_rr    = float(_r0.get("returns_pct", 0.0)) / 100.0
                             _qty        = [float(_r0.get("total_qty", _r0.get("shipped_qty", 0.0)) or 0.0)]
                             _sim = mc.MonteCarloSimulator(n_sims=int(n_sims), random_state=int(seed))
+                            _adj_price, _adj_prod, _adj_comm, _adj_promo, _adj_rr = _apply_assumptions(
+                                _base_price, _base_prod, _base_comm, _base_promo, _base_rr, ass
+                            )
                             _res = _sim.simulate_sku(
-                                base_price=_base_price,
-                                base_production_cost=_base_prod,
-                                base_commission_per_unit=_base_comm,
-                                base_promo_per_unit=_base_promo,
-                                base_returns_rate=_base_rr,
+                                base_price=_adj_price,
+                                base_production_cost=_adj_prod,
+                                base_commission_per_unit=_adj_comm,
+                                base_promo_per_unit=_adj_promo,
+                                base_returns_rate=_adj_rr,
                                 qty=_qty,
                             )
                             _rs = getattr(_res, "returns_summary", None)
@@ -1816,7 +1874,7 @@ def page_risk():
         returns_delta_pp = st.number_input("Возвраты + п.п.", value=0.0, step=0.2)
 
     cfg = mc.MCConfig(n_sims=int(n_sims), seed=int(seed))
-    ass = mc.Assumptions(
+    ass = Assumptions(
         price_drift_pp=float(price_drift_pp) / 100.0,
         promo_delta_pp=float(promo_delta_pp) / 100.0,
         commission_delta_pp=float(comm_delta_pp) / 100.0,
