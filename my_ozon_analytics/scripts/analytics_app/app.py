@@ -754,7 +754,7 @@ if reload_btn:
         st.cache_data.clear()
     except Exception:
         pass
-    st.experimental_rerun()
+    st.rerun()
 
 # Проверка существования каталога GOLD до загрузки
 _gdir = Path(gold_dir)
@@ -805,7 +805,7 @@ c1, c2, c3, c4 = st.columns(4)
 with c1:
     if st.button("MTD", key="preset_mtd"):
         st.session_state["_period_preset"] = "MTD"
-        st.experimental_rerun()
+        st.rerun()
 with c2:
     if st.button("Last 7d", key="preset_7d"):
         from datetime import date, timedelta
@@ -818,11 +818,11 @@ with c2:
 with c3:
     if st.button("Last 30d", key="preset_30d"):
         st.session_state["_period_preset"] = "30D"
-        st.experimental_rerun()
+        st.rerun()
 with c4:
     if st.button("Квартал", key="preset_qtr"):
         st.session_state["_period_preset"] = "QTR"
-        st.experimental_rerun()
+        st.rerun()
 
 # --- Apply filters ---
 _daily = fact_daily.copy()
