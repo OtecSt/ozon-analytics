@@ -609,19 +609,19 @@ import plotly.graph_objects as go
 st.markdown("""
 <style>
 :root{
-  /* базовая палитра */
-  --bg-0:#1e2124;                 /* самый тёмный */
-  --bg-1:#25282c;                 /* canvas */
-  --bg-2:#2c3035;                 /* карточки/контейнеры */
-  --bg-3:#343941;                 /* ховеры, выделение */
+  /* базовая палитра (повышенная контрастность) */
+  --bg-0:#17191c;                 /* самый тёмный */
+  --bg-1:#1d2024;                 /* canvas */
+  --bg-2:#24282e;                 /* карточки/контейнеры */
+  --bg-3:#2d323a;                 /* ховеры, выделение */
 
-  --ink:#e7eaf0;                  /* основной текст */
-  --muted:#a8b0bd;                /* вторичный текст */
+  --ink:#f4f7fb;                  /* основной текст (ярче) */
+  --muted:#c0c8d4;                /* вторичный текст (ярче) */
 
   /* nardo→chocolate */
   --nardo:#6e7072;
-  --graphite:#2f3237;
-  --choco:#3e2f28;
+  --graphite:#2a2e33;
+  --choco:#3a2b24;
 
   /* акценты */
   --copper:#d4a373;               /* главный акцент (медь) */
@@ -631,70 +631,70 @@ st.markdown("""
   --bad:#ef4444;
 
   --radius:18px;
-  --shadow-sm:0 8px 24px rgba(0,0,0,.25);
-  --shadow-md:0 16px 38px rgba(0,0,0,.35);
+  --shadow-sm:0 10px 28px rgba(0,0,0,.35);
+  --shadow-md:0 18px 48px rgba(0,0,0,.45);
 }
 
-/* фон — глубокий градиент nardo→chocolate */
+/* фон — глубокий градиент nardo→chocolate (чуть темнее) */
 html, body{
-  background: radial-gradient(1200px 800px at 20% -10%, #2b2f34 0%, transparent 50%),
-              radial-gradient(1200px 900px at 110% 10%, #3a2c25 0%, transparent 55%),
-              linear-gradient(135deg, var(--graphite), var(--choco));
+  background:
+    radial-gradient(1200px 820px at 20% -10%, #262a2f 0%, transparent 55%),
+    radial-gradient(1200px 920px at 110% 10%, #3a2b24 0%, transparent 60%),
+    linear-gradient(135deg, var(--graphite), var(--choco));
   color:var(--ink);
 }
 
 /* сайдбар — графит с тонкой рамкой */
 section[data-testid="stSidebar"]{
-  background: linear-gradient(180deg, #25282c, #202326);
-  border-right:1px solid rgba(255,255,255,.06);
-  box-shadow: inset -1px 0 0 rgba(0,0,0,.35);
+  background: linear-gradient(180deg, #1e2125, #191c20);
+  border-right:1px solid rgba(255,255,255,.08);
+  box-shadow: inset -1px 0 0 rgba(0,0,0,.55);
 }
 
 /* контейнер шире */
 .block-container{ max-width:1480px; padding-left:14px; padding-right:14px; }
 
-/* типографика */
-h1,h2,h3,h4{ color:var(--ink); letter-spacing:.2px }
+/* типографика (ярче заголовки) */
+h1,h2,h3,h4{ color:#ffffff; letter-spacing:.2px }
 h1{ font-weight:800 } h2{ font-weight:700 } h3,h4{ font-weight:600 }
 p, label, span, div{ color:var(--ink) }
 
-/* карточки/метрики — стеклянные с лёгким глянцем */
+/* карточки/метрики — стекло с более плотным фоном */
 [data-testid="stMetric"], .stAlert, .stDataFrame, .stTable, .element-container [class*="card"]{
-  background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
+  background: linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,.08));
   backdrop-filter: blur(6px);
-  border:1px solid rgba(255,255,255,.08);
+  border:1px solid rgba(255,255,255,.22);
   border-radius:var(--radius);
   box-shadow:var(--shadow-sm);
 }
-[data-testid="stMetric"]{ padding:16px 18px; }
+[data-testid="stMetric"]{ padding:18px 20px; }
 [data-testid="stMetric"] div{ color:var(--muted) }
+[data-testid="stMetric"] [data-testid="stMetricLabel"]{ color:#d6dde8; font-weight:600; }
 [data-testid="stMetric"] [data-testid="stMetricValue"]{
-  color:#fff; font-weight:800; text-shadow:0 1px 0 rgba(0,0,0,.35);
+  color:#ffffff; font-weight:900; text-shadow:0 1px 0 rgba(0,0,0,.45);
 }
 
 /* линии-групп и разделители */
-hr, .st-emotion-cache-hr{ border-color: rgba(255,255,255,.08) !important; }
+hr, .st-emotion-cache-hr{ border-color: rgba(255,255,255,.16) !important; }
 
 /* табы */
-.stTabs [role="tablist"]{ border-bottom:1px solid rgba(255,255,255,.08); }
-.stTabs [role="tab"]{
-  color:var(--muted) !important;
-}
+.stTabs [role="tablist"]{ border-bottom:1px solid rgba(255,255,255,.14); }
+.stTabs [role="tab"]{ color:#cfd5df !important; }
 .stTabs [role="tab"][aria-selected="true"]{
   color:var(--copper) !important;
   border-bottom:2px solid var(--copper) !important;
 }
 
 /* таблицы/гриды */
-.stDataFrame thead tr th{ color:#fff; background:rgba(255,255,255,.03); }
-.stDataFrame tbody tr{ background:rgba(255,255,255,.01); }
-.stDataFrame tbody tr:hover{ background:rgba(255,255,255,.05); }
+.stDataFrame thead tr th{ color:#ffffff; background:rgba(255,255,255,.08); }
+.stDataFrame tbody tr{ background:rgba(255,255,255,.03); color:#f1f4f9; }
+.stDataFrame tbody tr:hover{ background:rgba(255,255,255,.08); }
 
 /* поля ввода/селекты/радио/слайдеры/дейтпикеры */
 input, textarea, .stSelectbox, .stTextInput, .stDateInput, .stNumberInput{
-  background:rgba(0,0,0,.2) !important;
+  background:rgba(255,255,255,.08) !important;
   color:#fff !important;
-  border:1px solid rgba(255,255,255,.1) !important;
+  border:1px solid rgba(255,255,255,.24) !important;
   border-radius:12px !important;
 }
 .stSlider [role="slider"]{ border:2px solid var(--copper) !important; }
@@ -706,35 +706,35 @@ input, textarea, .stSelectbox, .stTextInput, .stDateInput, .stNumberInput{
 
 /* кнопки общего вида (графитовый градиент) */
 .stButton>button{
-  background: linear-gradient(180deg, #43474d, #2e3237);
+  background: linear-gradient(180deg, #4a4f57, #2c3138);
   color:#fff; border:none; border-radius:14px;
-  padding:.6rem 1.1rem; font-weight:700;
+  padding:.7rem 1.15rem; font-weight:800;
   box-shadow:var(--shadow-sm);
 }
-.stButton>button:hover{ filter:brightness(1.04); transform:translateY(-1px); }
+.stButton>button:hover{ filter:brightness(1.06); transform:translateY(-1px); }
 
 /* акцентные кнопки (медь) — добавь class="btn-accent" при необходимости */
 button[kind="primary"], .btn-accent{
   background: linear-gradient(180deg, var(--copper), var(--copper-700)) !important;
-  color:#1a1a1a !important; border:none !important; border-radius:14px !important;
+  color:#111 !important; border:none !important; border-radius:14px !important;
   box-shadow:var(--shadow-md) !important;
 }
-button[kind="primary"]:hover, .btn-accent:hover{ filter:brightness(1.06); }
+button[kind="primary"]:hover, .btn-accent:hover{ filter:brightness(1.08); }
 
 /* чипы-пресеты периода — премиальные «таблетки» */
 .periods-row .stButton>button{
-  background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.04));
+  background: linear-gradient(180deg, rgba(255,255,255,.22), rgba(255,255,255,.10));
   color:#fff;
-  border:1px solid rgba(255,255,255,.14);
-  border-radius:999px; padding:.44rem 1.1rem;
+  border:1px solid rgba(255,255,255,.30);
+  border-radius:999px; padding:.5rem 1.15rem; font-weight:800;
 }
 .periods-row .stButton>button:hover{
   border-color:var(--copper); color:var(--copper);
-  box-shadow:0 0 0 4px rgba(212,163,115,.18);
+  box-shadow:0 0 0 4px rgba(212,163,115,.28);
 }
 
 /* бейджи для KPI */
-.badge{display:inline-block;padding:4px 10px;border-radius:999px;color:#111;font-size:12px;font-weight:800}
+.badge{display:inline-block;padding:4px 10px;border-radius:999px;color:#111;font-size:12px;font-weight:900}
 .badge.good{background:var(--good)} .badge.warn{background:var(--warn)} .badge.bad{background:var(--bad)}
 .badge.neutral{background:var(--copper); color:#111}
 </style>
@@ -770,20 +770,26 @@ pio.templates["nardo_choco_dark"] = go.layout.Template(
             font=dict(color="#ffffff")
         ),
 
-        # МЯГКАЯ СЕТКА ДЛЯ ЧИТАЕМОСТИ
+        # ВЫСОКОКОНТРАСТНАЯ СЕТКА И ОСИ
         xaxis=dict(
-            gridcolor="rgba(255,255,255,0.08)",
-            zerolinecolor="rgba(255,255,255,0.10)",
-            linecolor="rgba(255,255,255,0.15)",
-            tickfont=dict(color="#cfd5df"),
-            title=dict(font=dict(color="#e7eaf0"))
+            gridcolor="rgba(255,255,255,0.18)",
+            zerolinecolor="rgba(255,255,255,0.24)",
+            linecolor="rgba(255,255,255,0.30)",
+            ticks="outside",
+            tickcolor="rgba(255,255,255,0.30)",
+            tickwidth=1,
+            tickfont=dict(color="#e8edf6", size=12),
+            title=dict(font=dict(color="#ffffff", size=13))
         ),
         yaxis=dict(
-            gridcolor="rgba(255,255,255,0.08)",
-            zerolinecolor="rgba(255,255,255,0.10)",
-            linecolor="rgba(255,255,255,0.15)",
-            tickfont=dict(color="#cfd5df"),
-            title=dict(font=dict(color="#e7eaf0"))
+            gridcolor="rgba(255,255,255,0.18)",
+            zerolinecolor="rgba(255,255,255,0.24)",
+            linecolor="rgba(255,255,255,0.30)",
+            ticks="outside",
+            tickcolor="rgba(255,255,255,0.30)",
+            tickwidth=1,
+            tickfont=dict(color="#e8edf6", size=12),
+            title=dict(font=dict(color="#ffffff", size=13))
         ),
 
         legend=dict(
