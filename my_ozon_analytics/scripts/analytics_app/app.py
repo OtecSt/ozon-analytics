@@ -595,53 +595,135 @@ except Exception:
 # ---------- Общие настройки ----------
 
 
+
 st.set_page_config(
     page_title="Аналитика и планирование Ozon",
     page_icon="📦",
     layout="wide",
 )
 
+# === Lux theme (Nardo Grey + Premium accents) ===
+import plotly.io as pio
+import plotly.graph_objects as go
+
 st.markdown("""
 <style>
 :root{
-  --nardo:#6E7072;       /* nardo grey */
-  --nardo-900:#3A3B3C;   /* графит */
-  --nardo-700:#585A5C;   /* тёмный акцент */
-  --nardo-300:#B8BBBE;   /* светлый */
-  --accent:#0EA5E9;      /* холодный бирюзовый акцент */
-  --warn:#F59E0B; --bad:#DC2626; --good:#16A34A;
+  /* базовые тона */
+  --paper:#F7F7F8;          /* фон полотна */
+  --card:#FFFFFF;           /* карточки/метрики */
+  --ink:#111827;            /* основной текст (почти чёрный) */
+  --muted:#6B7280;          /* вторичный текст */
+  --nardo:#6E7072;          /* nardo grey */
+  --nardo-900:#2F3133;
+  --nardo-700:#4B4D4F;
+  --nardo-300:#C6C9CD;
+
+  /* акцент: выбери стиль — холодный айс или «премиум-голд» */
+  --accent:#0EA5E9;         /* Ice Blue (по умолчанию) */
+  /* --accent:#CDA434; */    /* <- раскомментируй, если хочешь «золото» */
+
+  --accent-600:#0284C7;
+  --good:#16A34A; --warn:#F59E0B; --bad:#DC2626;
+
+  /* оформление */
+  --radius:18px;
+  --shadow-sm:0 2px 10px rgba(0,0,0,.06);
+  --shadow-md:0 8px 24px rgba(0,0,0,.08);
 }
 
-/* контейнер шире и «дорогие» отступы */
-.block-container{
-  max-width:1440px;padding-left:1.2rem;padding-right:1.2rem
+html, body{ background:var(--paper); color:var(--ink); }
+section[data-testid="stSidebar"]{
+  background:#FFFFFF; border-right:1px solid var(--nardo-300);
 }
 
-/* фон/текст */
-body { background:#fafafa; color:#1f2937; }
-section[data-testid="stSidebar"] { background:#ffffff; border-right:1px solid var(--nardo-300); }
+.block-container{ max-width:1440px; padding-left:1.2rem; padding-right:1.2rem; }
 
-/* заголовки */
-h1,h2,h3,h4 { color:var(--nardo-900); letter-spacing:.2px }
+/* типографика */
+h1,h2,h3,h4{ color:var(--nardo-900); letter-spacing:.2px }
+h1{ font-weight:800 } h2{ font-weight:700 } h3,h4{ font-weight:600 }
 
-/* кнопки */
-button[kind="secondary"], .stButton>button {
-  background:var(--nardo-700); color:#fff; border-radius:12px; border:none;
-}
-button[kind="secondary"]:hover, .stButton>button:hover { filter:brightness(1.08) }
-
-/* метрики */
+/* карточки-метрики */
 [data-testid="stMetric"]{
-  background:#fff; border:1px solid var(--nardo-300);
-  border-radius:16px; padding:14px 16px; box-shadow:0 2px 6px rgba(0,0,0,.04);
+  background:var(--card);
+  border:1px solid rgba(0,0,0,.06);
+  border-radius:var(--radius);
+  padding:16px 18px;
+  box-shadow:var(--shadow-sm);
+}
+[data-testid="stMetric"] div{
+  color:var(--muted);
+}
+[data-testid="stMetric"] [data-testid="stMetricValue"]{
+  color:var(--ink);
+  font-weight:800;
+}
+
+/* универсальные карточки/контейнеры */
+.stAlert, .element-container [class*="card"], .stDataFrame, .stTable{
+  border-radius:var(--radius) !important;
+  box-shadow:var(--shadow-sm);
+  border:1px solid rgba(0,0,0,.05);
+}
+
+/* кнопки: премиум + акцент для «действий» */
+.stButton>button{
+  background:linear-gradient(180deg, var(--nardo-700), var(--nardo-900));
+  color:#fff; border:none;
+  border-radius:14px; padding:.6rem 1.1rem; font-weight:700;
+  box-shadow:var(--shadow-sm);
+}
+.stButton>button:hover{ filter:brightness(1.05); transform:translateY(-1px); }
+
+/* акцентные кнопки — добавь class="btn-accent" через st.markdown, либо для первичных действий */
+button[kind="primary"], .btn-accent{
+  background:linear-gradient(180deg, var(--accent), var(--accent-600)) !important;
+  color:#fff !important; border:none !important; border-radius:14px !important;
+  box-shadow:var(--shadow-md) !important;
+}
+button[kind="primary"]:hover, .btn-accent:hover{ filter:brightness(1.05); }
+
+/* радио/переключатели/селекты/слайдеры/datepicker — акцент */
+[data-baseweb="radio"] div[role="radio"][aria-checked="true"],
+.css-1cpxqw2 edgvbvh3, .stSlider [role="slider"],
+input[type="date"]:focus, .stDateInput input:focus{
+  outline-color:var(--accent) !important;
+  border-color:var(--accent) !important;
+  box-shadow:0 0 0 3px rgba(14,165,233,.25) !important;
+}
+
+/* чипы-пресеты периода — выглядят как дорогие таблетки */
+.periods-row .stButton>button{
+  background:#fff;
+  color:var(--nardo-900);
+  border:1px solid var(--nardo-300);
+  border-radius:999px;
+  padding:.45rem 1rem;
+}
+.periods-row .stButton>button:hover{
+  border-color:var(--accent);
+  color:var(--accent);
+  box-shadow:0 0 0 3px rgba(14,165,233,.16);
 }
 
 /* бейджи */
-.badge{display:inline-block;padding:2px 8px;border-radius:999px;color:#fff;font-size:12px}
+.badge{display:inline-block;padding:3px 10px;border-radius:999px;color:#fff;font-size:12px;font-weight:700}
 .badge.good{background:var(--good)} .badge.warn{background:var(--warn)}
 .badge.bad{background:var(--bad)} .badge.neutral{background:var(--nardo-700)}
 </style>
 """, unsafe_allow_html=True)
+
+# единая «белая» тема и премиальная палитра для графиков
+pio.templates.default = "plotly_white"
+pio.templates["lux"] = go.layout.Template(
+    layout=go.Layout(
+        font=dict(family="Inter, system-ui, -apple-system, Segoe UI, Roboto", size=13),
+        paper_bgcolor="#FFFFFF",
+        plot_bgcolor="#FFFFFF",
+        margin=dict(l=8, r=8, t=56, b=8),
+        colorway=["#0EA5E9","#6E7072","#111827","#16A34A","#F59E0B","#DC2626","#B8BBBE"]
+    )
+)
 
 
 # ---------- Кеши и загрузка данных ----------
@@ -709,36 +791,6 @@ def _badge(text: str, kind: str = "neutral"):
     st.markdown(f'<span class="badge {kind}">{text}</span>', unsafe_allow_html=True)
 
 
-# --- Apply period preset safely BEFORE date widgets are created ---
-def _apply_period_preset():
-    """Если в session_state установлен пресет периода, применяем его и очищаем ключ.
-    Это нужно вызывать ДО рендера виджетов date_input с ключами `date_from`/`date_to`.
-    """
-    key = st.session_state.get("_period_preset")
-    if not key:
-        return
-    from datetime import date, timedelta
-
-    def _q_start(d: pd.Timestamp) -> pd.Timestamp:
-        m = ((d.month - 1) // 3) * 3 + 1
-        return pd.Timestamp(year=d.year, month=m, day=1)
-
-    today = pd.Timestamp(date.today())
-    if key == "MTD":
-        st.session_state["date_from"] = pd.Timestamp(date.today().replace(day=1))
-        st.session_state["date_to"] = today
-    elif key == "7D":
-        st.session_state["date_from"] = today - pd.Timedelta(days=6)
-        st.session_state["date_to"] = today
-    elif key == "30D":
-        st.session_state["date_from"] = today - pd.Timedelta(days=29)
-        st.session_state["date_to"] = today
-    elif key == "QTR":
-        st.session_state["date_from"] = _q_start(today)
-        st.session_state["date_to"] = today
-
-    # сбрасываем флажок, чтобы не триггерилось повторно
-    st.session_state["_period_preset"] = None
 
 # === Executive helpers: Waterfall (gross → net → margin) ===
 from typing import Mapping, Optional
@@ -841,7 +893,8 @@ margin_sum = float(analytics.get("margin", pd.Series(dtype=float)).sum())
 returns_qty_sum = float(analytics.get("returns_qty", pd.Series(dtype=float)).sum())
 promo_sum = float(analytics.get("promo_cost", pd.Series(dtype=float)).sum())
 
-from datetime import date, timedelta
+# === Period presets (ЕДИНЫЙ МЕХАНИЗМ) — поставить ВЫШЕ сайдбара ===
+from datetime import date
 
 def _set_range(days_back: int | None = None, quarter: bool = False):
     today = pd.Timestamp(date.today())
@@ -857,25 +910,27 @@ def _set_range(days_back: int | None = None, quarter: bool = False):
 
 c1, c2, c3, c4 = st.columns(4)
 with c1:
-    if st.button("MTD"):     _set_range(None)
+    if st.button("MTD"):      _set_range(None)
 with c2:
-    if st.button("Last 7d"): _set_range(6)
+    if st.button("Last 7d"):  _set_range(6)
 with c3:
     if st.button("Last 30d"): _set_range(29)
 with c4:
-    if st.button("Квартал"): _set_range(quarter=True)
+    if st.button("Квартал"):  _set_range(quarter=True)
 # --- Sidebar filters (depend on loaded data) ---
-_apply_period_preset()
 with st.sidebar:
     st.markdown("---")
     st.markdown("## 📅 Фильтры")
     granularity = st.radio("Гранулярность", ["День","Неделя","Месяц"], index=0, horizontal=True)
-    date_from = st.date_input("С даты", value=pd.to_datetime("2025-01-01"), key="date_from")
-    date_to   = st.date_input("По дату", value=pd.to_datetime("today"), key="date_to")
+
+    _def_from = st.session_state.get("date_from", pd.to_datetime("2025-01-01"))
+    _def_to   = st.session_state.get("date_to",   pd.to_datetime("today"))
+
+    date_from = st.date_input("С даты", value=_def_from, key="date_from")
+    date_to   = st.date_input("По дату", value=_def_to,   key="date_to")
+
     cogs_mode = st.selectbox("COGS режим", ["NET", "GROSS"], index=(0 if COGS_MODE == "NET" else 1))
-    # динамический список SKU
-    _sku_list = sorted(analytics["sku"].astype(str).unique().tolist())
-    selected_sku = st.multiselect("SKU", _sku_list[:50], max_selections=50)
+    selected_sku = st.multiselect("SKU", sku_list[:50], max_selections=50)
 
 _daily = fact_daily.copy()
 if "date" in _daily.columns:
