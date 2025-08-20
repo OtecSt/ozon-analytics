@@ -30,7 +30,6 @@ import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 import plotly.io as pio
-pio.templates.default = "plotly_white"
 
 # Унифицированный рендер Plotly с русской локалью
 def st_plot(fig):
@@ -596,134 +595,206 @@ except Exception:
 
 
 
+
 st.set_page_config(
     page_title="Аналитика и планирование Ozon",
     page_icon="📦",
     layout="wide",
 )
 
-# === Lux theme (Nardo Grey + Premium accents) ===
+# === Premium Dark: Nardo Grey → Chocolate ===
 import plotly.io as pio
 import plotly.graph_objects as go
 
 st.markdown("""
 <style>
 :root{
-  /* базовые тона */
-  --paper:#F7F7F8;          /* фон полотна */
-  --card:#FFFFFF;           /* карточки/метрики */
-  --ink:#111827;            /* основной текст (почти чёрный) */
-  --muted:#6B7280;          /* вторичный текст */
-  --nardo:#6E7072;          /* nardo grey */
-  --nardo-900:#2F3133;
-  --nardo-700:#4B4D4F;
-  --nardo-300:#C6C9CD;
+  /* базовая палитра */
+  --bg-0:#1e2124;                 /* самый тёмный */
+  --bg-1:#25282c;                 /* canvas */
+  --bg-2:#2c3035;                 /* карточки/контейнеры */
+  --bg-3:#343941;                 /* ховеры, выделение */
 
-  /* акцент: выбери стиль — холодный айс или «премиум-голд» */
-  --accent:#0EA5E9;         /* Ice Blue (по умолчанию) */
-  /* --accent:#CDA434; */    /* <- раскомментируй, если хочешь «золото» */
+  --ink:#e7eaf0;                  /* основной текст */
+  --muted:#a8b0bd;                /* вторичный текст */
 
-  --accent-600:#0284C7;
-  --good:#16A34A; --warn:#F59E0B; --bad:#DC2626;
+  /* nardo→chocolate */
+  --nardo:#6e7072;
+  --graphite:#2f3237;
+  --choco:#3e2f28;
 
-  /* оформление */
+  /* акценты */
+  --copper:#d4a373;               /* главный акцент (медь) */
+  --copper-700:#b9855b;
+  --good:#22c55e;
+  --warn:#f59e0b;
+  --bad:#ef4444;
+
   --radius:18px;
-  --shadow-sm:0 2px 10px rgba(0,0,0,.06);
-  --shadow-md:0 8px 24px rgba(0,0,0,.08);
+  --shadow-sm:0 8px 24px rgba(0,0,0,.25);
+  --shadow-md:0 16px 38px rgba(0,0,0,.35);
 }
 
-html, body{ background:var(--paper); color:var(--ink); }
+/* фон — глубокий градиент nardo→chocolate */
+html, body{
+  background: radial-gradient(1200px 800px at 20% -10%, #2b2f34 0%, transparent 50%),
+              radial-gradient(1200px 900px at 110% 10%, #3a2c25 0%, transparent 55%),
+              linear-gradient(135deg, var(--graphite), var(--choco));
+  color:var(--ink);
+}
+
+/* сайдбар — графит с тонкой рамкой */
 section[data-testid="stSidebar"]{
-  background:#FFFFFF; border-right:1px solid var(--nardo-300);
+  background: linear-gradient(180deg, #25282c, #202326);
+  border-right:1px solid rgba(255,255,255,.06);
+  box-shadow: inset -1px 0 0 rgba(0,0,0,.35);
 }
 
-.block-container{ max-width:1440px; padding-left:1.2rem; padding-right:1.2rem; }
+/* контейнер шире */
+.block-container{ max-width:1480px; padding-left:14px; padding-right:14px; }
 
 /* типографика */
-h1,h2,h3,h4{ color:var(--nardo-900); letter-spacing:.2px }
+h1,h2,h3,h4{ color:var(--ink); letter-spacing:.2px }
 h1{ font-weight:800 } h2{ font-weight:700 } h3,h4{ font-weight:600 }
+p, label, span, div{ color:var(--ink) }
 
-/* карточки-метрики */
-[data-testid="stMetric"]{
-  background:var(--card);
-  border:1px solid rgba(0,0,0,.06);
+/* карточки/метрики — стеклянные с лёгким глянцем */
+[data-testid="stMetric"], .stAlert, .stDataFrame, .stTable, .element-container [class*="card"]{
+  background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
+  backdrop-filter: blur(6px);
+  border:1px solid rgba(255,255,255,.08);
   border-radius:var(--radius);
-  padding:16px 18px;
   box-shadow:var(--shadow-sm);
 }
-[data-testid="stMetric"] div{
-  color:var(--muted);
-}
+[data-testid="stMetric"]{ padding:16px 18px; }
+[data-testid="stMetric"] div{ color:var(--muted) }
 [data-testid="stMetric"] [data-testid="stMetricValue"]{
-  color:var(--ink);
-  font-weight:800;
+  color:#fff; font-weight:800; text-shadow:0 1px 0 rgba(0,0,0,.35);
 }
 
-/* универсальные карточки/контейнеры */
-.stAlert, .element-container [class*="card"], .stDataFrame, .stTable{
-  border-radius:var(--radius) !important;
-  box-shadow:var(--shadow-sm);
-  border:1px solid rgba(0,0,0,.05);
+/* линии-групп и разделители */
+hr, .st-emotion-cache-hr{ border-color: rgba(255,255,255,.08) !important; }
+
+/* табы */
+.stTabs [role="tablist"]{ border-bottom:1px solid rgba(255,255,255,.08); }
+.stTabs [role="tab"]{
+  color:var(--muted) !important;
+}
+.stTabs [role="tab"][aria-selected="true"]{
+  color:var(--copper) !important;
+  border-bottom:2px solid var(--copper) !important;
 }
 
-/* кнопки: премиум + акцент для «действий» */
+/* таблицы/гриды */
+.stDataFrame thead tr th{ color:#fff; background:rgba(255,255,255,.03); }
+.stDataFrame tbody tr{ background:rgba(255,255,255,.01); }
+.stDataFrame tbody tr:hover{ background:rgba(255,255,255,.05); }
+
+/* поля ввода/селекты/радио/слайдеры/дейтпикеры */
+input, textarea, .stSelectbox, .stTextInput, .stDateInput, .stNumberInput{
+  background:rgba(0,0,0,.2) !important;
+  color:#fff !important;
+  border:1px solid rgba(255,255,255,.1) !important;
+  border-radius:12px !important;
+}
+.stSlider [role="slider"]{ border:2px solid var(--copper) !important; }
+.stSlider .st-og{ background: var(--copper) !important; }
+[data-baseweb="radio"] div[role="radio"][aria-checked="true"]{
+  outline-color:var(--copper) !important;
+  border-color:var(--copper) !important;
+}
+
+/* кнопки общего вида (графитовый градиент) */
 .stButton>button{
-  background:linear-gradient(180deg, var(--nardo-700), var(--nardo-900));
-  color:#fff; border:none;
-  border-radius:14px; padding:.6rem 1.1rem; font-weight:700;
+  background: linear-gradient(180deg, #43474d, #2e3237);
+  color:#fff; border:none; border-radius:14px;
+  padding:.6rem 1.1rem; font-weight:700;
   box-shadow:var(--shadow-sm);
 }
-.stButton>button:hover{ filter:brightness(1.05); transform:translateY(-1px); }
+.stButton>button:hover{ filter:brightness(1.04); transform:translateY(-1px); }
 
-/* акцентные кнопки — добавь class="btn-accent" через st.markdown, либо для первичных действий */
+/* акцентные кнопки (медь) — добавь class="btn-accent" при необходимости */
 button[kind="primary"], .btn-accent{
-  background:linear-gradient(180deg, var(--accent), var(--accent-600)) !important;
-  color:#fff !important; border:none !important; border-radius:14px !important;
+  background: linear-gradient(180deg, var(--copper), var(--copper-700)) !important;
+  color:#1a1a1a !important; border:none !important; border-radius:14px !important;
   box-shadow:var(--shadow-md) !important;
 }
-button[kind="primary"]:hover, .btn-accent:hover{ filter:brightness(1.05); }
+button[kind="primary"]:hover, .btn-accent:hover{ filter:brightness(1.06); }
 
-/* радио/переключатели/селекты/слайдеры/datepicker — акцент */
-[data-baseweb="radio"] div[role="radio"][aria-checked="true"],
-.css-1cpxqw2 edgvbvh3, .stSlider [role="slider"],
-input[type="date"]:focus, .stDateInput input:focus{
-  outline-color:var(--accent) !important;
-  border-color:var(--accent) !important;
-  box-shadow:0 0 0 3px rgba(14,165,233,.25) !important;
-}
-
-/* чипы-пресеты периода — выглядят как дорогие таблетки */
+/* чипы-пресеты периода — премиальные «таблетки» */
 .periods-row .stButton>button{
-  background:#fff;
-  color:var(--nardo-900);
-  border:1px solid var(--nardo-300);
-  border-radius:999px;
-  padding:.45rem 1rem;
+  background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.04));
+  color:#fff;
+  border:1px solid rgba(255,255,255,.14);
+  border-radius:999px; padding:.44rem 1.1rem;
 }
 .periods-row .stButton>button:hover{
-  border-color:var(--accent);
-  color:var(--accent);
-  box-shadow:0 0 0 3px rgba(14,165,233,.16);
+  border-color:var(--copper); color:var(--copper);
+  box-shadow:0 0 0 4px rgba(212,163,115,.18);
 }
 
-/* бейджи */
-.badge{display:inline-block;padding:3px 10px;border-radius:999px;color:#fff;font-size:12px;font-weight:700}
-.badge.good{background:var(--good)} .badge.warn{background:var(--warn)}
-.badge.bad{background:var(--bad)} .badge.neutral{background:var(--nardo-700)}
+/* бейджи для KPI */
+.badge{display:inline-block;padding:4px 10px;border-radius:999px;color:#111;font-size:12px;font-weight:800}
+.badge.good{background:var(--good)} .badge.warn{background:var(--warn)} .badge.bad{background:var(--bad)}
+.badge.neutral{background:var(--copper); color:#111}
 </style>
 """, unsafe_allow_html=True)
 
-# единая «белая» тема и премиальная палитра для графиков
-pio.templates.default = "plotly_white"
-pio.templates["lux"] = go.layout.Template(
+# Plotly – тёмный премиум-шаблон в одной палитре (медь/нейтраль/статусы)
+pio.templates["nardo_choco_dark"] = go.layout.Template(
     layout=go.Layout(
-        font=dict(family="Inter, system-ui, -apple-system, Segoe UI, Roboto", size=13),
-        paper_bgcolor="#FFFFFF",
-        plot_bgcolor="#FFFFFF",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="#262a2f",
+        font=dict(
+            family="Inter, system-ui, -apple-system, Segoe UI, Roboto",
+            size=13,
+            color="#e7eaf0"
+        ),
         margin=dict(l=8, r=8, t=56, b=8),
-        colorway=["#0EA5E9","#6E7072","#111827","#16A34A","#F59E0B","#DC2626","#B8BBBE"]
+
+        # БОЛЕЕ КОНТРАСТНАЯ ПАЛИТРА ДЛЯ ТЁМНОЙ ТЕМЫ
+        colorway=[
+            "#d4a373",  # copper (accent)
+            "#93c5fd",  # blue
+            "#22c55e",  # green
+            "#f59e0b",  # amber
+            "#ef4444",  # red
+            "#a78bfa",  # purple
+            "#eab308"   # gold
+        ],
+
+        # ТЁМНЫЕ ТУЛТИПЫ
+        hoverlabel=dict(
+            bgcolor="rgba(34,36,40,0.9)",
+            bordercolor="#d4a373",
+            font=dict(color="#ffffff")
+        ),
+
+        # МЯГКАЯ СЕТКА ДЛЯ ЧИТАЕМОСТИ
+        xaxis=dict(
+            gridcolor="rgba(255,255,255,0.08)",
+            zerolinecolor="rgba(255,255,255,0.10)",
+            linecolor="rgba(255,255,255,0.15)",
+            tickfont=dict(color="#cfd5df"),
+            titlefont=dict(color="#e7eaf0")
+        ),
+        yaxis=dict(
+            gridcolor="rgba(255,255,255,0.08)",
+            zerolinecolor="rgba(255,255,255,0.10)",
+            linecolor="rgba(255,255,255,0.15)",
+            tickfont=dict(color="#cfd5df"),
+            titlefont=dict(color="#e7eaf0")
+        ),
+
+        legend=dict(
+            bgcolor="rgba(0,0,0,0)",
+            bordercolor="rgba(255,255,255,0.10)",
+            borderwidth=0
+        )
     )
 )
+pio.templates.default = "nardo_choco_dark"
+
 
 
 # ---------- Кеши и загрузка данных ----------
@@ -908,15 +979,22 @@ def _set_range(days_back: int | None = None, quarter: bool = False):
     st.session_state["date_range_pending"] = (start, today)
     st.rerun()
 
-c1, c2, c3, c4 = st.columns(4)
-with c1:
-    if st.button("MTD"):      _set_range(None)
-with c2:
-    if st.button("Last 7d"):  _set_range(6)
-with c3:
-    if st.button("Last 30d"): _set_range(29)
-with c4:
-    if st.button("Квартал"):  _set_range(quarter=True)
+with st.container():
+    st.markdown('<div class="periods-row">', unsafe_allow_html=True)
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        if st.button("MTD"):
+            _set_range(None)
+    with c2:
+        if st.button("Last 7d"):
+            _set_range(6)
+    with c3:
+        if st.button("Last 30d"):
+            _set_range(29)
+    with c4:
+        if st.button("Квартал"):
+            _set_range(quarter=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 # --- Sidebar filters (depend on loaded data) ---
 with st.sidebar:
     st.markdown("---")
