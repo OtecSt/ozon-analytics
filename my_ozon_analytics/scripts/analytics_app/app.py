@@ -29,6 +29,8 @@ import pandas as pd
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
+import plotly.io as pio
+pio.templates.default = "plotly_white"
 
 # Унифицированный рендер Plotly с русской локалью
 def st_plot(fig):
@@ -601,7 +603,43 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-.block-container{max-width:1440px;padding-left:1.2rem;padding-right:1.2rem}
+:root{
+  --nardo:#6E7072;       /* nardo grey */
+  --nardo-900:#3A3B3C;   /* графит */
+  --nardo-700:#585A5C;   /* тёмный акцент */
+  --nardo-300:#B8BBBE;   /* светлый */
+  --accent:#0EA5E9;      /* холодный бирюзовый акцент */
+  --warn:#F59E0B; --bad:#DC2626; --good:#16A34A;
+}
+
+/* контейнер шире и «дорогие» отступы */
+.block-container{
+  max-width:1440px;padding-left:1.2rem;padding-right:1.2rem
+}
+
+/* фон/текст */
+body { background:#fafafa; color:#1f2937; }
+section[data-testid="stSidebar"] { background:#ffffff; border-right:1px solid var(--nardo-300); }
+
+/* заголовки */
+h1,h2,h3,h4 { color:var(--nardo-900); letter-spacing:.2px }
+
+/* кнопки */
+button[kind="secondary"], .stButton>button {
+  background:var(--nardo-700); color:#fff; border-radius:12px; border:none;
+}
+button[kind="secondary"]:hover, .stButton>button:hover { filter:brightness(1.08) }
+
+/* метрики */
+[data-testid="stMetric"]{
+  background:#fff; border:1px solid var(--nardo-300);
+  border-radius:16px; padding:14px 16px; box-shadow:0 2px 6px rgba(0,0,0,.04);
+}
+
+/* бейджи */
+.badge{display:inline-block;padding:2px 8px;border-radius:999px;color:#fff;font-size:12px}
+.badge.good{background:var(--good)} .badge.warn{background:var(--warn)}
+.badge.bad{background:var(--bad)} .badge.neutral{background:var(--nardo-700)}
 </style>
 """, unsafe_allow_html=True)
 
@@ -668,13 +706,7 @@ def _format_pct(x: float) -> str:
 
 # --- Badge helper ---
 def _badge(text: str, kind: str = "neutral"):
-    """Небольшой цветной бейдж «светофор» для KPI."""
-    colors = {"good": "#16a34a", "warn": "#f59e0b", "bad": "#dc2626", "neutral": "#64748b"}
-    st.markdown(
-        f'<span style="background:{colors.get(kind,"#64748b")};'
-        f'color:#fff;padding:2px 8px;border-radius:999px;font-size:12px;">{text}</span>',
-        unsafe_allow_html=True,
-    )
+    st.markdown(f'<span class="badge {kind}">{text}</span>', unsafe_allow_html=True)
 
 
 # --- Apply period preset safely BEFORE date widgets are created ---
@@ -809,6 +841,29 @@ margin_sum = float(analytics.get("margin", pd.Series(dtype=float)).sum())
 returns_qty_sum = float(analytics.get("returns_qty", pd.Series(dtype=float)).sum())
 promo_sum = float(analytics.get("promo_cost", pd.Series(dtype=float)).sum())
 
+from datetime import date, timedelta
+
+def _set_range(days_back: int | None = None, quarter: bool = False):
+    today = pd.Timestamp(date.today())
+    if quarter:
+        m = ((today.month-1)//3)*3 + 1
+        start = pd.Timestamp(year=today.year, month=m, day=1)
+    elif days_back is None:  # MTD
+        start = pd.Timestamp(date.today().replace(day=1))
+    else:
+        start = today - pd.Timedelta(days=days_back)
+    st.session_state["date_range_pending"] = (start, today)
+    st.rerun()
+
+c1, c2, c3, c4 = st.columns(4)
+with c1:
+    if st.button("MTD"):     _set_range(None)
+with c2:
+    if st.button("Last 7d"): _set_range(6)
+with c3:
+    if st.button("Last 30d"): _set_range(29)
+with c4:
+    if st.button("Квартал"): _set_range(quarter=True)
 # --- Sidebar filters (depend on loaded data) ---
 _apply_period_preset()
 with st.sidebar:
@@ -822,31 +877,6 @@ with st.sidebar:
     _sku_list = sorted(analytics["sku"].astype(str).unique().tolist())
     selected_sku = st.multiselect("SKU", _sku_list[:50], max_selections=50)
 
-# --- Presets для периода ---
-c1, c2, c3, c4 = st.columns(4)
-with c1:
-    if st.button("MTD", key="preset_mtd"):
-        st.session_state["_period_preset"] = "MTD"
-        st.rerun()
-with c2:
-    if st.button("Last 7d", key="preset_7d"):
-        from datetime import date, timedelta
-        import pandas as pd
-        st.session_state["date_range_pending"] = (
-            pd.Timestamp(date.today() - timedelta(days=6)),
-            pd.Timestamp(date.today()),
-        )
-        st.rerun()
-with c3:
-    if st.button("Last 30d", key="preset_30d"):
-        st.session_state["_period_preset"] = "30D"
-        st.rerun()
-with c4:
-    if st.button("Квартал", key="preset_qtr"):
-        st.session_state["_period_preset"] = "QTR"
-        st.rerun()
-
-# --- Apply filters ---
 _daily = fact_daily.copy()
 if "date" in _daily.columns:
     _daily = _daily[(pd.to_datetime(_daily["date"]) >= pd.to_datetime(date_from)) & (pd.to_datetime(_daily["date"]) <= pd.to_datetime(date_to))]
@@ -1874,7 +1904,7 @@ def page_risk():
         returns_delta_pp = st.number_input("Возвраты + п.п.", value=0.0, step=0.2)
 
     cfg = mc.MCConfig(n_sims=int(n_sims), seed=int(seed))
-    ass = Assumptions(
+    ass = mc.Assumptions(
         price_drift_pp=float(price_drift_pp) / 100.0,
         promo_delta_pp=float(promo_delta_pp) / 100.0,
         commission_delta_pp=float(comm_delta_pp) / 100.0,
