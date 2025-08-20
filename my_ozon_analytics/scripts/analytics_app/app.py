@@ -29,6 +29,48 @@ import pandas as pd
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
+
+# ===== UX helpers: premium KPI, sparklines, safe values =====
+import math
+
+def _safe_value(v, default="—"):
+    if v is None:
+        return default
+    if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+        return default
+    return v
+
+def _sparkline(series, height=42):
+    """Мини-график для KPI: скрытые оси, короткая высота."""
+    try:
+        if series is None or getattr(series, "empty", False):
+            return None
+        fig = go.Figure(go.Scatter(
+            x=series.index, y=series.values,
+            mode="lines", line=dict(width=2)
+        ))
+        fig.update_layout(
+            template="nardo_choco_dark",
+            height=height, margin=dict(l=0, r=0, t=0, b=0),
+            xaxis=dict(visible=False), yaxis=dict(visible=False)
+        )
+        return fig
+    except Exception:
+        return None
+
+def kpi_card(title: str, value, caption: str | None = None,
+            series=None, help_text: str | None = None):
+    """
+    Рендерит KPI с мини-линией тренда (если series передан).
+    value заранее форматируй _format_money/_format_pct — здесь только вывод/защита.
+    """
+    v = _safe_value(value)
+    st.metric(label=title, value=v, help=help_text)
+    fig = _sparkline(series)
+    if fig is not None:
+        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+    if caption:
+        st.caption(caption)
 import plotly.io as pio
 
 # Унифицированный рендер Plotly с русской локалью
@@ -674,6 +716,17 @@ p, label, span, div{ color:var(--ink) }
   color:#ffffff; font-weight:900; text-shadow:0 1px 0 rgba(0,0,0,.45);
 }
 
+/* KPI карточки — больше контраста, мягкий объём */
+[data-testid="stMetric"]{
+  background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
+  border:1px solid rgba(255,255,255,.10);
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.25);
+}
+[data-testid="stMetric"] [data-testid="stMetricValue"]{
+  color:#fff; font-weight:800;
+}
+
 /* линии-групп и разделители */
 hr, .st-emotion-cache-hr{ border-color: rgba(255,255,255,.16) !important; }
 
@@ -800,6 +853,49 @@ pio.templates["nardo_choco_dark"] = go.layout.Template(
     )
 )
 pio.templates.default = "nardo_choco_dark"
+
+# ===== UX helpers: premium KPI, sparklines, safe values =====
+import math
+
+def _safe_value(v, default="—"):
+    if v is None:
+        return default
+    if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+        return default
+    return v
+
+def _sparkline(series, height=42):
+    """Мини-график для KPI: скрытые оси, короткая высота."""
+    try:
+        if series is None or getattr(series, "empty", False):
+            return None
+        fig = go.Figure(go.Scatter(
+            x=series.index, y=series.values,
+            mode="lines", line=dict(width=2)
+        ))
+        fig.update_layout(
+            template="nardo_choco_dark",
+            height=height, margin=dict(l=0, r=0, t=0, b=0),
+            xaxis=dict(visible=False), yaxis=dict(visible=False)
+        )
+        return fig
+    except Exception:
+        return None
+
+def kpi_card(title: str, value, caption: str | None = None,
+            series=None, help_text: str | None = None):
+    """
+    Рендерит KPI с мини-линией тренда (если series передан).
+    value заранее форматируй _format_money/_format_pct — здесь только вывод/защита.
+    """
+    v = _safe_value(value)
+    # Верхняя строка — как "метрика", ниже — спарклайн
+    st.metric(label=title, value=v, help=help_text)
+    fig = _sparkline(series)
+    if fig is not None:
+        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+    if caption:
+        st.caption(caption)
 
 
 
