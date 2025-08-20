@@ -1,0 +1,13 @@
+[theme]
+base="dark"
+primaryColor="#d4a373"          # медный акцент (в унисон с CSS)
+backgroundColor="#1d2024"       # canvas
+secondaryBackgroundColor="#24282e"  # карточки/контейнеры
+textColor="#e7eaf0"
+font="sans serif"
+
+[server]
+headless=true
+
+[browser]
+gatherUsageStats=false
