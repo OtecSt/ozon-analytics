@@ -776,14 +776,14 @@ pio.templates["nardo_choco_dark"] = go.layout.Template(
             zerolinecolor="rgba(255,255,255,0.10)",
             linecolor="rgba(255,255,255,0.15)",
             tickfont=dict(color="#cfd5df"),
-            titlefont=dict(color="#e7eaf0")
+            title=dict(font=dict(color="#e7eaf0"))
         ),
         yaxis=dict(
             gridcolor="rgba(255,255,255,0.08)",
             zerolinecolor="rgba(255,255,255,0.10)",
             linecolor="rgba(255,255,255,0.15)",
             tickfont=dict(color="#cfd5df"),
-            titlefont=dict(color="#e7eaf0")
+            title=dict(font=dict(color="#e7eaf0"))
         ),
 
         legend=dict(
