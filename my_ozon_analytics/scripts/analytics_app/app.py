@@ -130,6 +130,17 @@ def metric_card(title: str, value, icon: str = "",
 
 # Унифицированный рендер Plotly с русской локалью
 def st_plot(fig):
+    """Единая точка вывода графиков: форсим наш тёмный шаблон и фон."""
+    try:
+        # Перекрываем любые «белые» шаблоны из сторонних модулей
+        fig.update_layout(
+            template="nardo_choco_dark",
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="#262a2f"
+        )
+    except Exception:
+        pass
+
     try:
         import streamlit as _st_local
         _st_local.plotly_chart(
@@ -138,7 +149,6 @@ def st_plot(fig):
             config={"locale": "ru", "displayModeBar": False},
         )
     except Exception:
-        # Фоллбек без конфига
         st.plotly_chart(fig, use_container_width=True)
 
 # ---- Monte Carlo module (safe, cached import) ----
@@ -1715,22 +1725,33 @@ def page_assortment():
     # Pareto 80/20 по выручке
     st.markdown("#### Pareto 80/20 по выручке")
     if {"sku", "total_rev"}.issubset(analytics.columns):
-        d = analytics.groupby("sku", as_index=False)["total_rev"].sum().sort_values("total_rev", ascending=False)
+        d = (analytics.groupby("sku", as_index=False)["total_rev"]
+                      .sum()
+                      .sort_values("total_rev", ascending=False))
         d["cum_pct"] = d["total_rev"].cumsum() / d["total_rev"].sum() * 100
+
+        xcat = d["sku"].astype(str)  # ВАЖНО: одинаковый тип на обеих трейсах
+
         fig_p = go.Figure()
-        fig_p.add_bar(x=d["sku"].astype(str), y=d["total_rev"], name="Выручка")
-        fig_p.add_trace(go.Scatter(x=d["sku"], y=d["cum_pct"], yaxis="y2", mode="lines+markers", name="Накопительный %"))
-        try:
-            fig_p.data[0].update(hovertemplate="%{y:.0f} ₽")   # bar: revenue
-            fig_p.data[1].update(hovertemplate="%{y:.1f} %")   # line: cumulative %
-        except Exception:
-            pass
+        fig_p.add_bar(x=xcat, y=d["total_rev"], name="Выручка")
+
+        fig_p.add_trace(go.Scatter(
+            x=xcat, y=d["cum_pct"],
+            mode="lines+markers",
+            name="Накопительный %",
+            yaxis="y2"
+        ))
+
+        fig_p.update_traces(selector=dict(type="bar"), hovertemplate="%{y:.0f} ₽")
+        fig_p.update_traces(selector=dict(type="scatter"), hovertemplate="%{y:.1f} %")
+
         fig_p.update_layout(
             margin=dict(l=8, r=8, t=48, b=8),
+            xaxis=dict(tickangle=-45),
             yaxis=dict(title="Выручка, ₽"),
-            yaxis2=dict(title="%", overlaying='y', side='right', range=[0, 100]),
-            xaxis=dict(tickangle=-45)
+            yaxis2=dict(title="%", overlaying="y", side="right", range=[0, 100]),
         )
+
         st_plot(fig_p)
         render_caption(
             title="Pareto 80/20 по выручке",
@@ -1738,7 +1759,7 @@ def page_assortment():
                 "Столбики — выручка по SKU",
                 "Линия — накопительная доля (шкала справа)",
             ],
-            note="Обычно 20% SKU дают ~80% выручки — на них фокусируемся в первую очередь."
+            note="Обычно ~20% SKU дают ~80% выручки — с них начинаем разбор."
         )
     else:
         st.info("Нет необходимых колонок для Pareto (нужны 'sku' и 'total_rev').")

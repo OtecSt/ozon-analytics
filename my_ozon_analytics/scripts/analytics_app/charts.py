@@ -1,5 +1,5 @@
 # components/charts.py
-# Единый слой для графиков Plotly Express с аккуратной вёрсткой.
+# Единый слой для графиков Plotly с аккуратной вёрсткой и тёмной темой.
 from __future__ import annotations
 
 from typing import Optional
@@ -7,30 +7,50 @@ from typing import Optional
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import plotly.io as pio
+
+
+# === Темизация: принудительный тёмный шаблон ===
+def _ensure_dark(fig: go.Figure) -> go.Figure:
+    """
+    Применяет тёмный шаблон и фон на момент вызова, не завися от порядка импортов.
+    Если в приложении зарегистрирован "nardo_choco_dark", используем его,
+    иначе — текущий default у Plotly.
+    """
+    tmpl = "nardo_choco_dark" if "nardo_choco_dark" in pio.templates else pio.templates.default
+    try:
+        fig.update_layout(
+            template=tmpl,
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="#262a2f",
+            hoverlabel=dict(bgcolor="rgba(34,36,40,0.9)"),
+        )
+    except Exception:
+        pass
+    return fig
 
 
 _DEF_MARGIN = dict(l=8, r=8, t=48, b=8)
 
 
-def _apply_layout(fig, title: Optional[str], *, show_legend: bool = True) -> None:
+def _apply_layout(fig: go.Figure, title: Optional[str], *, show_legend: bool = True) -> None:
     fig.update_layout(
         title=title or None,
         margin=_DEF_MARGIN,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1.0),
         hovermode="x unified",
         showlegend=show_legend,
-        font=dict(family="Arial", size=12),
-        title_font=dict(family="Arial", size=16),
-        plot_bgcolor="#fafafa",
-        paper_bgcolor="#ffffff",
-        xaxis=dict(showgrid=True, gridcolor="#e0e0e0", zeroline=False),
-        yaxis=dict(showgrid=True, gridcolor="#e0e0e0", zeroline=False),
-        template="plotly_white",
+        font=dict(family="Inter, sans-serif", size=12, color="#e6e6e6"),
+        title_font=dict(family="Inter, sans-serif", size=16, color="#d4a373"),
+        plot_bgcolor="#262a2f",
+        paper_bgcolor="rgba(0,0,0,0)",
+        xaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.08)", zeroline=False, linecolor="rgba(255,255,255,0.2)"),
+        yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.08)", zeroline=False, linecolor="rgba(255,255,255,0.2)"),
     )
 
 
 def _apply_y_format(
-    fig,
+    fig: go.Figure,
     *,
     y_is_currency: bool = False,
     y_is_percent: bool = False,
@@ -40,11 +60,23 @@ def _apply_y_format(
     if y_is_percent:
         fig.update_yaxes(ticksuffix="%", tickformat=f".{max(decimals,0)}f")
     elif y_is_currency:
-        # d3-format: , = разделитель тысяч
         fig.update_yaxes(tickprefix=currency, tickformat=f",.{max(decimals,0)}f")
     else:
         fig.update_yaxes(tickformat=f",.{max(decimals,0)}f")
 
+
+def _apply_hover_format(fig: go.Figure, y_is_currency: bool, y_is_percent: bool) -> go.Figure:
+    # Единые тултипы на оси Y (цифры читаемые на тёмном)
+    if y_is_currency:
+        fig.update_traces(hovertemplate="%{y:,.0f} ₽")
+    elif y_is_percent:
+        fig.update_traces(hovertemplate="%{y:.1f} %")
+    else:
+        fig.update_traces(hovertemplate="%{y:,.0f}")
+    return fig
+
+
+# ---------- Базовые примитивы ----------
 
 def line(
     df: pd.DataFrame,
@@ -60,15 +92,14 @@ def line(
     decimals: int = 0,
     show_legend: bool = True,
     show_values: bool = False,
-):
-    """Линейный график (поддерживает множественные y)."""
+) -> go.Figure:
     fig = px.line(df, x=x, y=y, color=color, markers=markers, title=title)
-    fig.update_traces(hovertemplate="%{y}")
-    if show_values:
-        fig.update_traces(text=df[y] if isinstance(y, str) else None, textposition="top center")
+    if show_values and isinstance(y, str):
+        fig.update_traces(text=df[y], textposition="top center")
     _apply_layout(fig, title, show_legend=show_legend)
     _apply_y_format(fig, y_is_currency=y_is_currency, y_is_percent=y_is_percent, currency=currency, decimals=decimals)
-    return fig
+    _apply_hover_format(fig, y_is_currency, y_is_percent)
+    return _ensure_dark(fig)
 
 
 def area(
@@ -85,18 +116,14 @@ def area(
     decimals: int = 0,
     show_legend: bool = True,
     show_values: bool = False,
-):
-    """Площадная диаграмма (stacked area)."""
+) -> go.Figure:
     fig = px.area(df, x=x, y=y, color=color, title=title)
-    if stackgroup:
-        # Plotly Express сам создаёт stack по цвету; параметр оставлен для совместимости
-        pass
-    fig.update_traces(hovertemplate="%{y}")
     if show_values:
         fig.update_traces(text=df[y], textposition="top center")
     _apply_layout(fig, title, show_legend=show_legend)
     _apply_y_format(fig, y_is_currency=y_is_currency, y_is_percent=y_is_percent, currency=currency, decimals=decimals)
-    return fig
+    _apply_hover_format(fig, y_is_currency, y_is_percent)
+    return _ensure_dark(fig)
 
 
 def scatter(
@@ -110,13 +137,11 @@ def scatter(
     title: Optional[str] = None,
     trendline: Optional[str] = None,   # "ols"
     show_legend: bool = True,
-):
-    """Точечный график (подходит для Маржа vs Выручка и т.п.)."""
+) -> go.Figure:
     fig = px.scatter(df, x=x, y=y, color=color, size=size, hover_data=hover_data, trendline=trendline, title=title)
     fig.update_traces(mode="markers")
-    fig.update_traces(hovertemplate="%{y}")
     _apply_layout(fig, title, show_legend=show_legend)
-    return fig
+    return _ensure_dark(fig)
 
 
 def bar(
@@ -134,8 +159,7 @@ def bar(
     decimals: int = 0,
     show_legend: bool = True,
     show_values: bool = False,
-):
-    """Столбчатая диаграмма (в том числе stacked)."""
+) -> go.Figure:
     fig = px.bar(
         df,
         x=x if orientation == "v" else y,
@@ -143,13 +167,13 @@ def bar(
         color=color,
         title=title,
     )
-    fig.update_traces(hovertemplate="%{y}")
-    if show_values:
-        fig.update_traces(text=df[y] if isinstance(y, str) else None, textposition="auto")
+    if show_values and isinstance(y, str):
+        fig.update_traces(text=df[y], textposition="auto")
     fig.update_layout(barmode=barmode)
     _apply_layout(fig, title, show_legend=show_legend)
     _apply_y_format(fig, y_is_currency=y_is_currency, y_is_percent=y_is_percent, currency=currency, decimals=decimals)
-    return fig
+    _apply_hover_format(fig, y_is_currency, y_is_percent)
+    return _ensure_dark(fig)
 
 
 def hist(
@@ -160,12 +184,11 @@ def hist(
     nbins: Optional[int] = None,
     title: Optional[str] = None,
     show_legend: bool = True,
-):
-    """Гистограмма распределения (например, доли возвратов)."""
+) -> go.Figure:
     fig = px.histogram(df, x=x, color=color, nbins=nbins, title=title)
     fig.update_traces(hovertemplate="%{x}: %{y}")
     _apply_layout(fig, title, show_legend=show_legend)
-    return fig
+    return _ensure_dark(fig)
 
 
 def box(
@@ -176,12 +199,10 @@ def box(
     color: Optional[str] = None,
     title: Optional[str] = None,
     show_legend: bool = True,
-):
-    """Box-plot (удобен для сравнения маржи по классам ABC/XYZ)."""
+) -> go.Figure:
     fig = px.box(df, x=x, y=y, color=color, title=title, points="outliers")
-    fig.update_traces(hovertemplate="%{y}")
     _apply_layout(fig, title, show_legend=show_legend)
-    return fig
+    return _ensure_dark(fig)
 
 
 def heatmap_pivot(
@@ -191,10 +212,7 @@ def heatmap_pivot(
     colorscale: str = "Blues",
     show_legend: bool = True,
     show_values: bool = True,
-):
-    """Тепловая карта для уже сформированного pivot-DataFrame.
-    Ожидается, что индекс = строки (например, SKU), колонки = периоды/категории.
-    """
+) -> go.Figure:
     fig = go.Figure(
         data=go.Heatmap(
             z=pivot.values,
@@ -204,70 +222,104 @@ def heatmap_pivot(
             colorbar=dict(title=""),
             text=pivot.values if show_values else None,
             texttemplate="%{z}" if show_values else None,
-            textfont=dict(color="black"),
         )
     )
     _apply_layout(fig, title, show_legend=show_legend)
-    return fig
+    fig.update_xaxes(showgrid=False)
+    fig.update_yaxes(showgrid=False)
+    return _ensure_dark(fig)
 
 
-# --- Новые визуальные примитивы ---
+# --- Сложные примитивы ---
 
-import plotly.express as px
-import plotly.graph_objects as go
-
-def waterfall(labels, values, title=None):
-    measures = ['relative'] * len(values)
+def waterfall(labels: list[str], values: list[float], title: str | None = None) -> go.Figure:
+    measures = ["relative"] * (len(values) - 1) + ["total"]
     fig = go.Figure(go.Waterfall(
         name="",
         orientation="v",
         measure=measures,
         x=labels,
         y=values,
-        connector={"line":{"width":1}}
+        connector={"line": {"width": 1}},
     ))
-    fig.update_layout(title=title, template="plotly_white", margin=dict(l=8, r=8, t=48, b=8))
-    return fig
+    fig.update_traces(hovertemplate="%{y:,.0f} ₽")
+    fig.update_layout(title=title, margin=_DEF_MARGIN)
+    return _ensure_dark(fig)
 
-def treemap_revenue(df, path_cols, value_col, color_col=None, title=None):
+
+def treemap_revenue(df: pd.DataFrame, path_cols, value_col, color_col: str | None = None, title: str | None = None) -> go.Figure:
     fig = px.treemap(df, path=path_cols, values=value_col, color=color_col, title=title, color_continuous_scale="RdYlGn")
-    fig.update_layout(margin=dict(l=8, r=8, t=48, b=8))
-    return fig
+    fig.update_layout(margin=_DEF_MARGIN)
+    return _ensure_dark(fig)
 
-def pareto(df, x_col, value_col, title=None):
-    d = df.groupby(x_col, as_index=False)[value_col].sum().sort_values(value_col, ascending=False)
-    d['cum_pct'] = d[value_col].cumsum() / d[value_col].sum() * 100
+
+def pareto(df: pd.DataFrame, x_col: str, y_col: str, title: str = "Pareto 80/20", x_tickangle: int = -45) -> go.Figure:
+    """
+    Pareto 80/20: столбики = метрика (например, total_rev) по SKU/категории,
+    линия = накопительная доля, правая ось Y (0..100%).
+    """
+    d = (df.groupby(x_col, as_index=False)[y_col]
+           .sum()
+           .sort_values(y_col, ascending=False))
+    if d.empty:
+        return _ensure_dark(go.Figure())
+
+    d["cum_pct"] = d[y_col].cumsum() / d[y_col].sum() * 100
+    xcat = d[x_col].astype(str)  # одинаковый тип оси X для bar и scatter
+
     fig = go.Figure()
-    fig.add_bar(x=d[x_col], y=d[value_col], name=value_col)
-    fig.add_trace(go.Scatter(x=d[x_col], y=d['cum_pct'], yaxis="y2", mode="lines+markers", name="Накопительный %"))
+    fig.add_bar(x=xcat, y=d[y_col], name=y_col)
+    fig.add_trace(go.Scatter(
+        x=xcat, y=d["cum_pct"],
+        mode="lines+markers",
+        name="Накопительный %",
+        yaxis="y2",
+    ))
+
+    fig.update_traces(selector=dict(type="bar"), hovertemplate="%{y:,.0f}")
+    fig.update_traces(selector=dict(type="scatter"), hovertemplate="%{y:.1f} %")
+
     fig.update_layout(
-        title=title, template="plotly_white",
-        yaxis=dict(title=value_col),
-        yaxis2=dict(title="%", overlaying='y', side='right', rangemode='tozero', range=[0, 100]),
-        margin=dict(l=8, r=8, t=48, b=8)
+        title=title,
+        margin=_DEF_MARGIN,
+        xaxis=dict(tickangle=x_tickangle),
+        yaxis=dict(title=y_col),
+        yaxis2=dict(title="%", overlaying="y", side="right", range=[0, 100]),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
-    return fig
+    return _ensure_dark(fig)
 
-def heatmap_calendar(pivot, title=None):
-    fig = go.Figure(data=go.Heatmap(z=pivot.values, x=list(pivot.columns), y=list(pivot.index), coloraxis="coloraxis"))
-    fig.update_layout(title=title, coloraxis=dict(colorscale="Blues"), template="plotly_white", margin=dict(l=8, r=8, t=48, b=8))
-    return fig
 
-def scatter_margin_returns(df, x='returns_pct', y='margin', color='category', hover=None, title=None):
+def heatmap_calendar(pivot: pd.DataFrame, title: str | None = None) -> go.Figure:
+    fig = go.Figure(
+        data=go.Heatmap(
+            z=pivot.values,
+            x=list(pivot.columns),
+            y=list(pivot.index),
+            coloraxis="coloraxis",
+        )
+    )
+    fig.update_layout(title=title, coloraxis=dict(colorscale="Blues"), margin=_DEF_MARGIN)
+    return _ensure_dark(fig)
+
+
+def scatter_margin_returns(df: pd.DataFrame, x: str = "returns_pct", y: str = "margin", color: str = "category", hover=None, title: str | None = None) -> go.Figure:
     fig = px.scatter(df, x=x, y=y, color=color, hover_data=hover, title=title)
-    fig.update_layout(template="plotly_white", margin=dict(l=8, r=8, t=48, b=8))
-    return fig
+    fig.update_layout(margin=_DEF_MARGIN)
+    return _ensure_dark(fig)
 
-def target_line(fig, x0, x1, y, name="План"):
+
+def target_line(fig: go.Figure, x0, x1, y, name: str = "План") -> go.Figure:
     fig.add_shape(type="line", x0=x0, x1=x1, y0=y, y1=y, line=dict(dash="dash", width=2), name=name)
     return fig
 
 
 # Алиасы для совместимости с предыдущими версиями
-def line_chart(df, x, y, **kwargs):
+def line_chart(df, x, y, **kwargs):  # noqa: D401
     """Алиас для line() для совместимости с предыдущими версиями."""
     return line(df, x, y, **kwargs)
 
-def bar_chart(df, x, y, **kwargs):
+
+def bar_chart(df, x, y, **kwargs):  # noqa: D401
     """Алиас для bar() для совместимости с предыдущими версиями."""
     return bar(df, x, y, **kwargs)
