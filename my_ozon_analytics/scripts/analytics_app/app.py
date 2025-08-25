@@ -633,7 +633,7 @@ except Exception:
     class charts:  # fallback-обёртка
         @staticmethod
         def line(df, x, y, title=None, **kwargs):
-            fig = px.line(df, x=x, y=y, title=title)
+            fig = px.line(df, x=x, y=y, title=title, template="nardo_choco_dark")
             if kwargs.get("y_is_currency"):
                 fig.update_traces(hovertemplate="%{y:.0f} ₽")
             elif kwargs.get("y_is_percent"):
@@ -641,7 +641,7 @@ except Exception:
             return fig
         @staticmethod
         def bar(df, x, y, title=None, **kwargs):
-            fig = px.bar(df, x=x, y=y, title=title)
+            fig = px.bar(df, x=x, y=y, title=title, template="nardo_choco_dark")
             if kwargs.get("y_is_currency"):
                 fig.update_traces(hovertemplate="%{y:.0f} ₽")
             elif kwargs.get("y_is_percent"):
@@ -649,7 +649,7 @@ except Exception:
             return fig
         @staticmethod
         def scatter(df, x, y, color=None, hover_data=None, title=None, **kwargs):
-            fig = px.scatter(df, x=x, y=y, color=color, hover_data=hover_data, title=title)
+            fig = px.scatter(df, x=x, y=y, color=color, hover_data=hover_data, title=title, template="nardo_choco_dark")
             if kwargs.get("y_is_currency"):
                 fig.update_traces(hovertemplate="%{y:.0f} ₽")
             elif kwargs.get("y_is_percent"):
@@ -658,6 +658,7 @@ except Exception:
         @staticmethod
         def heatmap_pivot(pivot, title=None):
             fig = go.Figure(data=go.Heatmap(z=pivot.values, x=list(pivot.columns), y=list(pivot.index)))
+            fig.update_layout(template="nardo_choco_dark")
             fig.update_layout(title=title)
             return fig
         @staticmethod
@@ -669,7 +670,7 @@ except Exception:
                 y=values,
                 connector={"line": {"color": "#888", "width": 1}},
             ))
-            fig.update_layout(title=title, margin=dict(l=8, r=8, t=48, b=8))
+            fig.update_layout(title=title, margin=dict(l=8, r=8, t=48, b=8), template="nardo_choco_dark")
             return fig
 
 
@@ -1717,7 +1718,7 @@ def page_assortment():
         d = analytics.groupby("sku", as_index=False)["total_rev"].sum().sort_values("total_rev", ascending=False)
         d["cum_pct"] = d["total_rev"].cumsum() / d["total_rev"].sum() * 100
         fig_p = go.Figure()
-        fig_p.add_bar(x=d["sku"], y=d["total_rev"], name="Выручка")
+        fig_p.add_bar(x=d["sku"].astype(str), y=d["total_rev"], name="Выручка")
         fig_p.add_trace(go.Scatter(x=d["sku"], y=d["cum_pct"], yaxis="y2", mode="lines+markers", name="Накопительный %"))
         try:
             fig_p.data[0].update(hovertemplate="%{y:.0f} ₽")   # bar: revenue
@@ -1727,7 +1728,8 @@ def page_assortment():
         fig_p.update_layout(
             margin=dict(l=8, r=8, t=48, b=8),
             yaxis=dict(title="Выручка, ₽"),
-            yaxis2=dict(title="%", overlaying='y', side='right', range=[0, 100])
+            yaxis2=dict(title="%", overlaying='y', side='right', range=[0, 100]),
+            xaxis=dict(tickangle=-45)
         )
         st_plot(fig_p)
         render_caption(
