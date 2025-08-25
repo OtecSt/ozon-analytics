@@ -2,6 +2,11 @@ import os, sys as _sys_boot
 
 # применяем быстрые пресеты до инициализации виджетов Streamlit
 import streamlit as st
+st.set_page_config(
+    page_title="Аналитика и планирование Ozon",
+    page_icon="📦",
+    layout="wide",
+)
 _pending = st.session_state.pop("date_range_pending", None)
 if _pending:
     st.session_state["date_from"], st.session_state["date_to"] = _pending
@@ -26,7 +31,6 @@ from typing import Dict
 
 import numpy as np
 import pandas as pd
-import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 
@@ -71,7 +75,58 @@ def kpi_card(title: str, value, caption: str | None = None,
         st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
     if caption:
         st.caption(caption)
-import plotly.io as pio
+# ==== KPI helpers (icons + status color) ======================================
+def kpi_badge_kind(value: float | None, good="up", warn="mid", bad="down",
+                   good_thr=0.0, warn_thr=-5.0):
+    """
+    Эвристика статуса: для процентов в диапазоне [-100..100]
+      > good_thr -> good, > warn_thr -> warn, иначе bad.
+    Для денег/чисел вне процента: >=0 -> good, <0 -> bad.
+    """
+    if value is None:
+        return "neutral"
+    try:
+        v = float(value)
+    except Exception:
+        return "neutral"
+    if -100.0 <= v <= 100.0:
+        if v > good_thr:  return "good"
+        if v > warn_thr:  return "warn"
+        return "bad"
+    return "good" if v >= 0 else "bad"
+
+
+def metric_card(title: str, value, icon: str = "",
+                caption: str | None = None, series=None,
+                help_text: str | None = None, status_from: float | None = None):
+    """
+    Иконочный KPI: крупное значение + статус-бейдж + мини-тренд (sparkline).
+    - icon: '📦', '💰', '📈', '🎯' и т.п.
+    - status_from: число для статуса (обычно %), напр. margin_pct.
+    """
+    # Заголовок с иконкой
+    if icon:
+        st.markdown(
+            "<div style='display:flex;gap:.5rem;align-items:center;opacity:.95'>"
+            f"<span style='font-size:20px'>{icon}</span>"
+            f"<span style='font-weight:700'>{title}</span>"
+            "</div>",
+            unsafe_allow_html=True
+        )
+        st.write("")  # небольшой отступ
+
+    # Бейдж статуса (если задано сравниваемое значение)
+    if status_from is not None:
+        try:
+            v = float(status_from)
+            sign = "+" if v > 0 else ""
+            kind = kpi_badge_kind(v)
+            st.markdown(f"<span class='badge {kind}'>{sign}{v:.1f}%</span>", unsafe_allow_html=True)
+        except Exception:
+            pass
+
+    # Основное значение + спарклайн (используем твой kpi_card)
+    kpi_card(title="", value=value, caption=caption, series=series, help_text=help_text)
 
 # Унифицированный рендер Plotly с русской локалью
 def st_plot(fig):
@@ -614,7 +669,7 @@ except Exception:
                 y=values,
                 connector={"line": {"color": "#888", "width": 1}},
             ))
-            fig.update_layout(title=title, template="plotly_white", margin=dict(l=8, r=8, t=48, b=8))
+            fig.update_layout(title=title, margin=dict(l=8, r=8, t=48, b=8))
             return fig
 
 
@@ -635,18 +690,8 @@ except Exception:
 
 # ---------- Общие настройки ----------
 
-
-
-
-st.set_page_config(
-    page_title="Аналитика и планирование Ozon",
-    page_icon="📦",
-    layout="wide",
-)
-
 # === Premium Dark: Nardo Grey → Chocolate ===
 import plotly.io as pio
-import plotly.graph_objects as go
 
 st.markdown("""
 <style>
@@ -716,16 +761,6 @@ p, label, span, div{ color:var(--ink) }
   color:#ffffff; font-weight:900; text-shadow:0 1px 0 rgba(0,0,0,.45);
 }
 
-/* KPI карточки — больше контраста, мягкий объём */
-[data-testid="stMetric"]{
-  background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
-  border:1px solid rgba(255,255,255,.10);
-  border-radius: 16px;
-  box-shadow: 0 8px 24px rgba(0,0,0,.25);
-}
-[data-testid="stMetric"] [data-testid="stMetricValue"]{
-  color:#fff; font-weight:800;
-}
 
 /* линии-групп и разделители */
 hr, .st-emotion-cache-hr{ border-color: rgba(255,255,255,.16) !important; }
@@ -790,6 +825,27 @@ button[kind="primary"]:hover, .btn-accent:hover{ filter:brightness(1.08); }
 .badge{display:inline-block;padding:4px 10px;border-radius:999px;color:#111;font-size:12px;font-weight:900}
 .badge.good{background:var(--good)} .badge.warn{background:var(--warn)} .badge.bad{background:var(--bad)}
 .badge.neutral{background:var(--copper); color:#111}
+
+/* --- KPI иконки/бейджи — лёгкий апдейт + грид --- */
+.kpi-row{ display:grid; grid-template-columns: repeat(4, 1fr); gap:16px; }
+@media (max-width: 1400px){ .kpi-row{ grid-template-columns: repeat(2, 1fr);} }
+@media (max-width: 900px){ .kpi-row{ grid-template-columns: 1fr;} }
+
+/* metric чуть плотнее блёра */
+[data-testid="stMetric"]{
+  background: linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,.06));
+  border:1px solid rgba(255,255,255,.22);
+  border-radius: 18px;
+  box-shadow: 0 10px 28px rgba(0,0,0,.35);
+}
+
+/* чипсы периода — активная подсветка */
+.periods-row .stButton>button[aria-pressed="true"],
+.periods-row .stButton>button.is-active{
+  border-color: var(--copper) !important;
+  color: var(--copper) !important;
+  box-shadow: 0 0 0 4px rgba(212,163,115,.25);
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -853,49 +909,8 @@ pio.templates["nardo_choco_dark"] = go.layout.Template(
     )
 )
 pio.templates.default = "nardo_choco_dark"
+px.defaults.template = "nardo_choco_dark"
 
-# ===== UX helpers: premium KPI, sparklines, safe values =====
-import math
-
-def _safe_value(v, default="—"):
-    if v is None:
-        return default
-    if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
-        return default
-    return v
-
-def _sparkline(series, height=42):
-    """Мини-график для KPI: скрытые оси, короткая высота."""
-    try:
-        if series is None or getattr(series, "empty", False):
-            return None
-        fig = go.Figure(go.Scatter(
-            x=series.index, y=series.values,
-            mode="lines", line=dict(width=2)
-        ))
-        fig.update_layout(
-            template="nardo_choco_dark",
-            height=height, margin=dict(l=0, r=0, t=0, b=0),
-            xaxis=dict(visible=False), yaxis=dict(visible=False)
-        )
-        return fig
-    except Exception:
-        return None
-
-def kpi_card(title: str, value, caption: str | None = None,
-            series=None, help_text: str | None = None):
-    """
-    Рендерит KPI с мини-линией тренда (если series передан).
-    value заранее форматируй _format_money/_format_pct — здесь только вывод/защита.
-    """
-    v = _safe_value(value)
-    # Верхняя строка — как "метрика", ниже — спарклайн
-    st.metric(label=title, value=v, help=help_text)
-    fig = _sparkline(series)
-    if fig is not None:
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-    if caption:
-        st.caption(caption)
 
 
 
@@ -1000,7 +1015,7 @@ def build_waterfall(analytics_like: Mapping[str, float]) -> "go.Figure":
         connector={"line": {"width": 1}}
     ))
     fig.update_traces(hovertemplate="%{y:.0f} ₽")
-    fig.update_layout(title="Денежный водопад", showlegend=False, template="plotly_white", margin=dict(l=8, r=8, t=48, b=8))
+    fig.update_layout(title="Денежный водопад", showlegend=False, margin=dict(l=8, r=8, t=48, b=8))
     return fig
 # === end executive helpers ===
 
@@ -1066,36 +1081,48 @@ margin_sum = float(analytics.get("margin", pd.Series(dtype=float)).sum())
 returns_qty_sum = float(analytics.get("returns_qty", pd.Series(dtype=float)).sum())
 promo_sum = float(analytics.get("promo_cost", pd.Series(dtype=float)).sum())
 
-# === Period presets (ЕДИНЫЙ МЕХАНИЗМ) — поставить ВЫШЕ сайдбара ===
-from datetime import date
+# === Period presets with active highlight ===
 
 def _set_range(days_back: int | None = None, quarter: bool = False):
-    today = pd.Timestamp(date.today())
+    today = pd.Timestamp(pd.Timestamp.today().date())
     if quarter:
         m = ((today.month-1)//3)*3 + 1
         start = pd.Timestamp(year=today.year, month=m, day=1)
+        st.session_state["_period_preset"] = "QTR"
     elif days_back is None:  # MTD
-        start = pd.Timestamp(date.today().replace(day=1))
+        start = pd.Timestamp(today.replace(day=1))
+        st.session_state["_period_preset"] = "MTD"
     else:
         start = today - pd.Timedelta(days=days_back)
+        st.session_state["_period_preset"] = f"L{days_back+1}D"
     st.session_state["date_range_pending"] = (start, today)
     st.rerun()
+
+active = st.session_state.get("_period_preset", "MTD")
 
 with st.container():
     st.markdown('<div class="periods-row">', unsafe_allow_html=True)
     c1, c2, c3, c4 = st.columns(4)
+
+    def _btn(label, key_match):
+        pressed = (active == key_match)
+        b = st.button(label, key=f"btn_{key_match}")
+        # «визуально активная» подсветка через aria (последняя отрисованная кнопка)
+        if pressed:
+            st.markdown(
+                "<script>document.querySelectorAll('button[kind]').at(-1)?.setAttribute('aria-pressed','true')</script>",
+                unsafe_allow_html=True
+            )
+        return b
+
     with c1:
-        if st.button("MTD"):
-            _set_range(None)
+        if _btn("MTD", "MTD"): _set_range(None)
     with c2:
-        if st.button("Last 7d"):
-            _set_range(6)
+        if _btn("Last 7d", "L7D"): _set_range(6)
     with c3:
-        if st.button("Last 30d"):
-            _set_range(29)
+        if _btn("Last 30d", "L30D"): _set_range(29)
     with c4:
-        if st.button("Квартал"):
-            _set_range(quarter=True)
+        if _btn("Квартал", "QTR"): _set_range(quarter=True)
     st.markdown('</div>', unsafe_allow_html=True)
 # --- Sidebar filters (depend on loaded data) ---
 with st.sidebar:
@@ -1160,6 +1187,7 @@ def page_overview():
     ana = analytics
     daily_f = _daily
     fin = _kpis_finance_blocks(ana, daily_f)
+    st.markdown('<div class="kpi-row">', unsafe_allow_html=True)
     kpi_row([
         {"title": "Валовая выручка", "value": _format_money(fin["gross"])},
         {"title": "Чистая выручка",  "value": _format_money(fin["net"])},
@@ -1174,12 +1202,19 @@ def page_overview():
             _badge(f"{float(fin['margin_pct']):.1f} %", _kind_m)
     except Exception:
         pass
+
+    # --- Icon KPI for margin % (status + sparkline ready) ---
+    try:
+        metric_card("Маржа, %", _format_pct(fin["margin_pct"]), icon="📈", status_from=fin["margin_pct"])
+    except Exception:
+        pass
     kpi_row([
         {"title": "AOV", "value": _format_money(fin["aov"])},
         {"title": "ROMI", "value": (f"{fin['romi']:.2f}x" if fin.get("romi") is not None else "н/д")},
         {"title": "ROI", "value": (f"{fin['roi']:.2f}x" if fin.get("roi") is not None else "н/д")},
         {"title": "SKU в риске", "value": f"{int(((ana.get('returns_pct', pd.Series(dtype=float)) > RETURNS_ALERT_PCT).sum() if 'returns_pct' in ana.columns else 0) + ((ana.get('margin', pd.Series(dtype=float)) < 0).sum() if 'margin' in ana.columns else 0))}"},
     ])
+    st.markdown('</div>', unsafe_allow_html=True)
 
     # --- KPI (риски) ---
     # Возвраты ₽: приоритет готовой суммы; иначе оценка avg_net_price_per_unit * returns_qty
@@ -1226,6 +1261,7 @@ def page_overview():
                     prob_neg_gm = 0.5 * (1 + erf(z / sqrt(2)))
     except Exception:
         prob_neg_gm = None
+    st.markdown('<div class="kpi-row">', unsafe_allow_html=True)
     kpi_row([
         {"title": "Возвраты, ₽", "value": _format_money(_returns_rub)},
         {"title": "Возвраты, % (факт)", "value": _format_pct(fact_ret_pct)},
@@ -1246,6 +1282,7 @@ def page_overview():
         {"title": "—", "value": " "},
         {"title": "—", "value": " "},
     ])
+    st.markdown('</div>', unsafe_allow_html=True)
 
     # --- Денежный водопад по портфелю (обзор) ---
     # Подбор доступных компонент из analytics (суммы за период/фильтр)
@@ -1337,7 +1374,7 @@ def page_overview():
                                         y=pd.concat([fc["p90"], fc["p10"][::-1]]),
                                         fill='toself', line=dict(width=0), name="p10–p90", hoverinfo="skip"))
             fig_fc.update_traces(hovertemplate="%{y:.0f} ₽")
-            fig_fc.update_layout(template="plotly_white", margin=dict(l=8, r=8, t=48, b=8), title="Прогноз Net: p50 и веер p10–p90 (недели)")
+            fig_fc.update_layout(margin=dict(l=8, r=8, t=48, b=8), title="Прогноз Net: p50 и веер p10–p90 (недели)")
             st_plot(fig_fc)
     else:
         st.info("Нет данных для построения динамики.")
@@ -1466,7 +1503,6 @@ def page_about_diag(fact_daily, fact_monthly, analytics, forecast):
         connector={"line": {"color": "#888", "width": 1}},
     ))
     fig_wf.update_layout(
-        template="plotly_white",
         margin=dict(l=8, r=8, t=48, b=8),
         title="Мостик Unit Economics",
     )
@@ -1487,7 +1523,7 @@ def page_returns_lab():
     if {"returns_pct", "margin"}.issubset(analytics.columns):
         fig_sc = px.scatter(analytics, x="returns_pct", y="margin", color=("category" if "category" in analytics.columns else None),
                             hover_data=[c for c in ["sku", "total_rev", "net_revenue"] if c in analytics.columns], title="Маржа vs Возвраты, %")
-        fig_sc.update_layout(template="plotly_white")
+        fig_sc.update_layout()
         st_plot(fig_sc)
         render_caption(
             title="Маржа vs Возвраты",
@@ -1653,10 +1689,16 @@ def page_assortment():
     if {"sku", "total_rev"}.issubset(set(base_cols)):
         df_tm = analytics[base_cols].copy()
         path_cols = [cat_col, "sku"] if cat_col else ["sku"]
-        fig_tm = px.treemap(df_tm, path=path_cols, values="total_rev", color=("margin" if "margin" in df_tm.columns else None),
-                            color_continuous_scale="RdYlGn", title="Treemap: вклад в выручку")
+        fig_tm = px.treemap(
+            df_tm,
+            path=path_cols,
+            values="total_rev",
+            color=("margin" if "margin" in df_tm.columns else None),
+            color_continuous_scale=[(0, "#ef4444"), (0.5, "#f59e0b"), (1, "#22c55e")],
+            title="Treemap: вклад в выручку"
+        )
         fig_tm.update_traces(hovertemplate="%{value:.0f} ₽")
-        fig_tm.update_layout(margin=dict(l=8, r=8, t=48, b=8), template="plotly_white")
+        fig_tm.update_layout(margin=dict(l=8, r=8, t=48, b=8))
         st_plot(fig_tm)
         render_caption(
             title="Treemap ассортимента",
@@ -1683,7 +1725,6 @@ def page_assortment():
         except Exception:
             pass
         fig_p.update_layout(
-            template="plotly_white",
             margin=dict(l=8, r=8, t=48, b=8),
             yaxis=dict(title="Выручка, ₽"),
             yaxis2=dict(title="%", overlaying='y', side='right', range=[0, 100])
@@ -1746,12 +1787,14 @@ def page_sku_detail():
     margin = float(r.get("margin", net - cogs - commission_total))
     margin_pct = (margin / net * 100.0) if net else 0.0
 
+    st.markdown('<div class="kpi-row">', unsafe_allow_html=True)
     kpi_row([
         {"title": "Валовая выручка", "value": _format_money(gross)},
         {"title": "Чистая выручка",  "value": _format_money(net)},
         {"title": "Маржа (ИТОГО)",   "value": _format_money(margin)},
         {"title": "Маржа, %",        "value": _format_pct(margin_pct)},
     ])
+    st.markdown('</div>', unsafe_allow_html=True)
 
     # --- Таблица с ключевыми полями по SKU ---
     cols_pref = [
